@@ -1,8 +1,8 @@
 <div align="center">
 
-# 📋 bgnconnect
+# 📋 bgnconnect — encrypted clipboard sync for Android ↔ Linux
 
-### Self-hosted, end-to-end encrypted clipboard sync between **Android** and **Linux** — copy on one device, paste on the other, automatically.
+### Copy on one device, paste on the other — automatically, end-to-end encrypted, on a relay **you host yourself**.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-Android%2010%2B%20%C2%B7%20Linux%20(Wayland)-success)

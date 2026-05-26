@@ -1,0 +1,63 @@
+# bgnconnect relay — example nginx vhost (ADVANCED).
+#
+# Most self-hosters don't need this: `docker compose up -d` already runs Caddy,
+# which terminates TLS and proxies WebSockets for you. Use this only if you prefer
+# to front the relay with an EXISTING nginx. Run the relay bound to localhost
+# (e.g. via docker-compose.prod.yml → 127.0.0.1:3001) and let nginx terminate TLS.
+#
+# Replace relay.example.com with your domain and point the cert paths at your certs
+# (e.g. certbot: /etc/letsencrypt/live/<domain>/). Then clients use wss://<domain>.
+
+# HTTP — ACME challenge passthrough + HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name relay.example.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — terminate TLS, reverse-proxy to the relay (WebSocket + blob HTTP)
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name relay.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/relay.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/relay.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+
+    # Blob uploads (images/files) — must exceed the backend's MAX_BLOB_BYTES (25 MiB).
+    client_max_body_size 30m;
+
+    access_log /var/log/nginx/bgnconnect.access.log;
+    error_log  /var/log/nginx/bgnconnect.error.log;
+
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+
+    # Health, version, blob HTTP, and the WebSocket (/ws) all on one upstream.
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering  off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}

@@ -1,0 +1,39 @@
+services:
+  bgnconnect:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "3000"
+    volumes:
+      - bgn-data:/data
+    environment:
+      PORT: "3000"
+      DB_PATH: /data/bgnconnect.db
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # TLS terminator: serves wss:// publicly, auto-provisions Let's Encrypt certs.
+  # Set BGN_DOMAIN to your public hostname; defaults to localhost (self-signed).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BGN_DOMAIN: ${BGN_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - bgnconnect
+
+volumes:
+  bgn-data:
+  caddy-data:
+  caddy-config:

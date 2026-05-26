@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Staging dir for images we hand to the clipboard via FileProvider (see ShizukuClipboard.setImage). -->
+    <cache-path name="clipimg" path="clipimg/" />
+</paths>

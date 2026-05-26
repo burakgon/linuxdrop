@@ -1,0 +1,15 @@
+[Unit]
+Description=bgnconnect clipboard sync
+# Start once the Wayland/X session is up so WAYLAND_DISPLAY, XDG_RUNTIME_DIR and
+# the session DBus (for the tray + KWallet) are available.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/bgnconnectd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

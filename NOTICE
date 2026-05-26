@@ -1,0 +1,9 @@
+bgnconnect
+Copyright 2026 burakgon
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this project except in compliance with the License.
+A copy of the License is provided in the LICENSE file.
+
+The reflective IClipboard access pattern used on Android is inspired by
+scrcpy (https://github.com/Genymobile/scrcpy), also Apache-2.0 licensed.

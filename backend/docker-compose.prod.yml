@@ -1,0 +1,28 @@
+# bgnconnect relay — ADVANCED: front with your own existing reverse proxy.
+#
+# Most self-hosters should use docker-compose.yml instead (it bundles Caddy with
+# automatic TLS). Use THIS file only if you already run nginx/another proxy: the
+# container binds to 127.0.0.1 only, and your host proxy terminates TLS and
+# reverse-proxies your public subdomain to it (see deploy/nginx-relay.conf.example).
+# SQLite lives in a named volume so the bun user owns it (avoids permission issues).
+services:
+  bgnconnect:
+    build: .
+    image: bgnconnect-backend:latest
+    container_name: bgnconnect
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - bgn-data:/data
+    environment:
+      PORT: "3000"
+      DB_PATH: /data/bgnconnect.db
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  bgn-data:

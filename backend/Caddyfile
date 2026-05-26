@@ -1,0 +1,6 @@
+# Public hostname (set BGN_DOMAIN env). Defaults to localhost → Caddy serves a
+# locally-trusted self-signed cert, handy for testing. Caddy proxies WebSocket
+# upgrades automatically, so wss://<domain>/ws works out of the box.
+{$BGN_DOMAIN:localhost} {
+	reverse_proxy bgnconnect:3000
+}

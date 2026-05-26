@@ -1,0 +1,37 @@
+# Sırlar — asla commit etme
+*.secret
+secret
+**/config/secret
+.env
+.env.*
+
+# Backend (Bun/Node)
+node_modules/
+backend/data/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+
+# Go
+linux/bin/
+bgnconnectd
+*.test
+*.out
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Genel
+.DS_Store
+*.log
+dist/

@@ -7,7 +7,7 @@ import { BlobStore, MAX_BLOB_BYTES } from "./blob.ts";
 import { createWebSocketHandlers, type WsData } from "./ws.ts";
 import { isValidRoomId, PROTOCOL_VERSION } from "./protocol.ts";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 // ICE servers handed to clients for the direct P2P (WebRTC) file path. Public STUN
 // is enough for direct/hole-punched connections (no data flows through it). If the

@@ -32,6 +32,7 @@ class WsClient(
     private val onClip: (iv: String, ct: String) -> Unit,
     private val onPeers: (count: Int) -> Unit = {},
     private val onRoster: (devices: List<RosterEntry>) -> Unit = {},
+    private val onSignal: (fromDev: String, iv: String, ct: String) -> Unit = { _, _, _ -> },
     private val onState: (connected: Boolean) -> Unit,
 ) {
     /** A roster entry from the relay: device id + (optional) sealed name/platform. */
@@ -100,6 +101,15 @@ class WsClient(
         )
     }
 
+    /** Route a WebRTC signaling payload to one peer (relay forwards it; §7). */
+    fun sendSignal(toDev: String, iv: String, ct: String, idHex: String) {
+        val enc = JSONObject().put("v", 1).put("alg", "AES-256-GCM").put("iv", iv).put("ct", ct)
+        ws?.send(
+            JSONObject().put("t", "signal").put("id", idHex).put("ts", System.currentTimeMillis())
+                .put("dev", dev).put("to", toDev).put("enc", enc).toString(),
+        )
+    }
+
     private fun connect() {
         if (!running.get()) return
         val myGen = ++gen
@@ -123,6 +133,7 @@ class WsClient(
                         "clip" -> m.optJSONObject("enc")?.let { onClip(it.getString("iv"), it.getString("ct")) }
                         "peers" -> onPeers(m.optInt("count", 0))
                         "roster" -> onRoster(parseRoster(m))
+                        "signal" -> m.optJSONObject("enc")?.let { onSignal(m.optString("dev"), it.getString("iv"), it.getString("ct")) }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "bad message", e)

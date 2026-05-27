@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
@@ -60,6 +61,7 @@ fun HomeScreen(
     onScanQr: () -> Unit,
     onGrantShizuku: () -> Unit,
     onHistory: () -> Unit,
+    onSendFile: (dev: String) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -83,7 +85,7 @@ fun HomeScreen(
             StatusCard(ui, onToggle)
             if (!ui.shizukuReady) ShizukuSetupCard(ui, onGrant = onGrantShizuku)
             if (!ui.batteryUnrestricted) BatteryCard()
-            DevicesCard(ui)
+            DevicesCard(ui, onSendFile)
             Button(onClick = onAddDevice, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.QrCode2, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -165,12 +167,13 @@ private fun StatusCard(ui: UiModel, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun DevicesCard(ui: UiModel) {
+private fun DevicesCard(ui: UiModel, onSendFile: (String) -> Unit) {
+    val canSend = ui.sync.running && ui.sync.connected
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Connected devices", style = MaterialTheme.typography.titleMedium)
             if (ui.sync.devices.isNotEmpty()) {
-                ui.sync.devices.forEach { DeviceRow(it) }
+                ui.sync.devices.forEach { DeviceRow(it, canSend, onSendFile) }
             } else {
                 val n = ui.sync.peerCount
                 val text = when {
@@ -186,13 +189,20 @@ private fun DevicesCard(ui: UiModel) {
 }
 
 @Composable
-private fun DeviceRow(d: SyncStatus.Device) {
+private fun DeviceRow(d: SyncStatus.Device, canSend: Boolean, onSendFile: (String) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Icon(if (d.platform == "linux") Icons.Default.Computer else Icons.Default.Smartphone, contentDescription = null)
         Text(if (d.self) "${d.name} · this device" else d.name)
         Text("· ${d.platform}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (canSend && !d.self) {
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { onSendFile(d.dev) }) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send file")
+            }
+        }
     }
 }

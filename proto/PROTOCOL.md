@@ -37,6 +37,7 @@ and cannot decrypt clipboard content (the encrypted payload).
 | `peers`  | server→client  | `count`           | Number of devices in the room |
 | `roster` | server→client  | `devices`         | Connected devices: `[{dev, enc}]` — `enc` decrypts to `{name,platform}` |
 | `clip`   | bidirectional  | `enc`             | Clipboard update (encrypted) |
+| `signal` | client→client (relayed) | `to` (recipient `dev`), `enc` | WebRTC setup for direct P2P file transfer (§7) |
 | `ack`    | bidirectional  | `ref` (message id) | Delivery acknowledgement (optional) |
 | `ping`   | bidirectional  | —                 | App-layer keepalive |
 | `pong`   | bidirectional  | `ref`             | Reply to `ping` |
@@ -124,3 +125,26 @@ GET  /blob/<id>?room=<roomId>                                 → 200 blobEnc (b
   (it's an ephemeral transfer channel). An expired/missing blob → the receiver silently skips (`404`).
 - v1.1 scope: **images** (clipboard image/* MIME). Files reuse the blob infrastructure; client
   integration is extended per platform.
+
+## 7. Direct P2P file transfer (WebRTC)
+
+Large **file sharing** does NOT go through the relay — devices connect **directly** via a WebRTC
+DataChannel and stream the bytes peer-to-peer (full LAN speed when on the same network; a
+hole-punched direct path across networks). The relay carries only the tiny **signaling**.
+
+```
+GET /ice                       → { "iceServers": [ {urls:"stun:…"}, {urls:"turn:…",username,credential}? ] }
+```
+
+- **ICE config:** clients fetch `/ice` for STUN (always) and TURN (only if the operator set
+  `TURN_URL`+`TURN_SECRET`; coturn `use-auth-secret`, time-limited creds). STUN carries no data;
+  TURN is an optional fallback relay for strict NATs.
+- **Signaling:** exchanged as `signal` envelopes routed to one peer by `to=<dev>`. The `enc` seals
+  `{ kind:"offer"|"answer"|"candidate", sdp | candidate, origin }`. The **entire SDP (including the
+  DTLS `a=fingerprint`) is E2E-encrypted with the room key**, so a malicious relay cannot MITM the
+  DTLS handshake — the shared secret authenticates the peer. Trickle ICE: candidates flow as they appear.
+- **Transfer (over the DataChannel `bgn-file`, DTLS-encrypted by WebRTC):**
+  1. `{"t":"head","name","size","mime","sha256"}`
+  2. binary chunks (~16 KiB, with backpressure)
+  3. `{"t":"done"}` → receiver verifies size + SHA-256, saves to Downloads, notifies. `{"t":"err"}` aborts.
+- Receiving is **auto-accept + notify** (devices are already paired by the shared secret). No resume in v1.

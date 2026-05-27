@@ -116,6 +116,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearHistory() = ClipHistory.clear(getApplication())
 
+    /** Send a file directly (P2P) to a peer device — bytes go peer-to-peer, not via the relay. */
+    fun sendFile(toDev: String, uri: android.net.Uri) {
+        SyncForegroundService.sendFile(getApplication(), toDev, uri)
+    }
+
     private fun restartIfRunning() {
         if (_ui.value.sync.running) {
             stop(); start()

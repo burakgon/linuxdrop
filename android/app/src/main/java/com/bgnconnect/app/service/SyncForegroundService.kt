@@ -15,8 +15,10 @@ import androidx.core.app.ServiceCompat
 import com.bgnconnect.app.MainActivity
 import com.bgnconnect.app.R
 import com.bgnconnect.app.config.Secret
+import android.net.Uri
 import com.bgnconnect.app.crypto.BgnCrypto
 import com.bgnconnect.app.net.BlobClient
+import com.bgnconnect.app.net.P2pManager
 import com.bgnconnect.app.net.WsClient
 import com.bgnconnect.app.shizuku.ShizukuClipboard
 import org.json.JSONObject
@@ -34,6 +36,7 @@ class SyncForegroundService : Service() {
     private lateinit var ws: WsClient
     private lateinit var shizuku: ShizukuClipboard
     private lateinit var blob: BlobClient
+    private var p2p: P2pManager? = null
     private lateinit var dev: String
     private lateinit var room: String
 
@@ -53,6 +56,16 @@ class SyncForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A "send file" request to the already-running service (P2P, direct).
+        if (intent?.action == ACTION_SEND_FILE) {
+            val toDev = intent.getStringExtra(EXTRA_TO_DEV)
+            val uri = intent.data
+            if (toDev != null && uri != null) {
+                io.execute { runCatching { p2p?.sendFile(toDev, uri) } }
+            }
+            return START_STICKY
+        }
+
         val secret = Secret(this)
         val bytes = secret.secretBytes()
         val relay = secret.relayUrl
@@ -83,6 +96,7 @@ class SyncForegroundService : Service() {
             onClip = { iv, ct -> onRemoteClip(iv, ct) },
             onPeers = { n -> SyncStatus.setPeerCount(n) },
             onRoster = { entries -> onRoster(entries) },
+            onSignal = { fromDev, iv, ct -> onRemoteSignal(fromDev, iv, ct) },
             onState = { connected ->
                 SyncStatus.setConnected(connected)
                 startForegroundNotification(if (connected) "Connected" else "Connecting…")
@@ -90,12 +104,50 @@ class SyncForegroundService : Service() {
         )
         ws.start()
 
+        // Direct P2P file transfer: signaling rides ws (sealed), bytes go peer-to-peer.
+        p2p = P2pManager(
+            context = this,
+            relayBaseUrl = relay,
+            dev = dev,
+            sendSignal = { toDev, payload ->
+                val (iv, ct) = crypto.seal(payload)
+                ws.sendSignal(toDev, iv, ct, randomId())
+            },
+            onReceived = { name -> notifyFile("Received $name") },
+            onSent = { name, ok -> notifyFile(if (ok) "Sent $name" else "Failed to send $name") },
+        )
+
         return START_STICKY
+    }
+
+    /** Inbound P2P signaling: decrypt and hand to the WebRTC manager. */
+    private fun onRemoteSignal(fromDev: String, iv: String, ct: String) {
+        val payload = try {
+            crypto.open(iv, ct)
+        } catch (e: Exception) {
+            Log.w(TAG, "signal decrypt failed")
+            return
+        }
+        p2p?.onSignal(fromDev, payload)
+    }
+
+    private fun notifyFile(text: String) {
+        val n = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("bgnconnect")
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_sync)
+            .setAutoCancel(true)
+            .build()
+        runCatching {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .notify((System.currentTimeMillis() % 100000).toInt(), n)
+        }
     }
 
     override fun onDestroy() {
         runCatching { ws.stop() }
         runCatching { shizuku.unbind() }
+        runCatching { p2p?.close() }
         runCatching { io.shutdownNow() }
         SyncStatus.setRunning(false)
         super.onDestroy()
@@ -262,6 +314,8 @@ class SyncForegroundService : Service() {
         private const val TAG = "bgnSvc"
         private const val CHANNEL_ID = "bgnconnect.sync"
         private const val NOTIF_ID = 1
+        private const val ACTION_SEND_FILE = "com.bgnconnect.app.SEND_FILE"
+        private const val EXTRA_TO_DEV = "toDev"
 
         fun start(context: Context) {
             val i = Intent(context, SyncForegroundService::class.java)
@@ -270,6 +324,16 @@ class SyncForegroundService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, SyncForegroundService::class.java))
+        }
+
+        /** Ask the running service to send a file directly (P2P) to a peer device. */
+        fun sendFile(context: Context, toDev: String, uri: Uri) {
+            val i = Intent(context, SyncForegroundService::class.java)
+                .setAction(ACTION_SEND_FILE)
+                .putExtra(EXTRA_TO_DEV, toDev)
+                .setData(uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }
 
         private fun sha256Hex(b: ByteArray): String =

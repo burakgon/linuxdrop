@@ -132,3 +132,41 @@ test("blob rejects an invalid room", async () => {
   const r = await fetch(`${HTTP}/blob?room=bad`, { method: "PUT", body: new Uint8Array([1]) });
   expect(r.status).toBe(400);
 });
+
+const hello = (dev: string) => JSON.stringify({ t: "hello", dev, ts: Date.now() });
+
+test("signal is delivered only to the addressed peer", async () => {
+  const a = await open();
+  const b = await open();
+  const c = await open();
+  a.send(hello("devA"));
+  b.send(hello("devB"));
+  c.send(hello("devC"));
+  await Bun.sleep(150); // let hellos register dev ids
+
+  let cGotSignal = false;
+  c.addEventListener("message", (ev) => {
+    if (JSON.parse(ev.data as string).t === "signal") cGotSignal = true;
+  });
+  const bGetsSignal = nextMessage(b, (m) => m.t === "signal");
+
+  a.send(JSON.stringify({ t: "signal", id: "s1", ts: Date.now(), dev: "devA", to: "devB", enc: { iv: "x", ct: "y" } }));
+
+  const got = await bGetsSignal;
+  expect(got.dev).toBe("devA");
+  await Bun.sleep(120);
+  expect(cGotSignal).toBe(false); // directed, not broadcast
+
+  a.close();
+  b.close();
+  c.close();
+});
+
+test("/ice returns STUN ice servers", async () => {
+  const r = await fetch(`${HTTP}/ice`);
+  expect(r.status).toBe(200);
+  const j = (await r.json()) as { iceServers: Array<{ urls: string | string[] }> };
+  expect(Array.isArray(j.iceServers)).toBe(true);
+  expect(j.iceServers.length).toBeGreaterThanOrEqual(1);
+  expect(JSON.stringify(j.iceServers)).toContain("stun:");
+});

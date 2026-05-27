@@ -1,12 +1,32 @@
 import { Hono } from "hono";
 import type { Server } from "bun";
 import { dirname } from "node:path";
+import { createHmac } from "node:crypto";
 import { openDb } from "./db.ts";
 import { BlobStore, MAX_BLOB_BYTES } from "./blob.ts";
 import { createWebSocketHandlers, type WsData } from "./ws.ts";
 import { isValidRoomId, PROTOCOL_VERSION } from "./protocol.ts";
 
 const VERSION = "0.1.0";
+
+// ICE servers handed to clients for the direct P2P (WebRTC) file path. Public STUN
+// is enough for direct/hole-punched connections (no data flows through it). If the
+// operator sets TURN_URL + TURN_SECRET (coturn `use-auth-secret`), a TURN relay is
+// added as a fallback for strict NATs, with short-lived time-limited credentials.
+function iceServers() {
+  const servers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  ];
+  const turnUrl = process.env.TURN_URL;
+  const turnSecret = process.env.TURN_SECRET;
+  if (turnUrl && turnSecret) {
+    const expiry = Math.floor(Date.now() / 1000) + 12 * 3600; // 12h TTL
+    const username = `${expiry}:bgnconnect`;
+    const credential = createHmac("sha1", turnSecret).update(username).digest("base64");
+    servers.push({ urls: turnUrl.split(",").map((s) => s.trim()), username, credential });
+  }
+  return servers;
+}
 
 export function createServer(opts: { port: number; dbPath: string }): Server {
   const db = openDb(opts.dbPath);
@@ -18,6 +38,8 @@ export function createServer(opts: { port: number; dbPath: string }): Server {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true, uptime: process.uptime() }));
   app.get("/version", (c) => c.json({ version: VERSION, protocol: PROTOCOL_VERSION }));
+  // ICE config for the direct P2P file path (STUN, + TURN fallback if configured).
+  app.get("/ice", (c) => c.json({ iceServers: iceServers() }));
 
   // Blob transfer for images/files: client uploads E2E-encrypted bytes, peers fetch
   // by id. Room-scoped so only network members can read; relay never decrypts.

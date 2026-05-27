@@ -15,7 +15,8 @@ backend/data/
 
 # Go
 linux/bin/
-bgnconnectd
+/linux/bgnconnectd
+/linux/cmd/bgnconnectd/bgnconnectd
 *.test
 *.out
 

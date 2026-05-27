@@ -14,6 +14,12 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // WebRTC ships native .so per ABI; ship only the ABIs real phones use to
+        // keep the APK from ballooning (drops x86/x86_64 emulator builds).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildFeatures {
@@ -65,6 +71,9 @@ dependencies {
 
     // QR pairing: scan (ScanContract) + display (BarcodeEncoder)
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
+    // WebRTC (maintained fork of org.webrtc) — direct P2P file transfer DataChannel.
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
 
     testImplementation("junit:junit:4.13.2")
 }

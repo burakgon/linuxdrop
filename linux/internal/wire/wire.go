@@ -9,13 +9,14 @@ import (
 )
 
 type Envelope struct {
-	T     string `json:"t"`             // hello | peers | clip | ack | ping | pong
-	ID    string `json:"id,omitempty"`  // ULID-ish; for ack/dedup
-	Ts    int64  `json:"ts,omitempty"`  // sender unix-ms
-	Dev   string `json:"dev,omitempty"` // sender device id (UX/log, not routing)
-	Ref   string `json:"ref,omitempty"` // referenced id (ack/pong)
-	Count int    `json:"count,omitempty"`
-	Enc   *Enc   `json:"enc,omitempty"`     // "clip"; also "hello" (sealed {name,platform})
+	T       string         `json:"t"`             // hello | peers | roster | clip | ack | ping | pong | signal
+	ID      string         `json:"id,omitempty"`  // ULID-ish; for ack/dedup
+	Ts      int64          `json:"ts,omitempty"`  // sender unix-ms
+	Dev     string         `json:"dev,omitempty"` // sender device id (UX/log, not routing)
+	Ref     string         `json:"ref,omitempty"` // referenced id (ack/pong)
+	To      string         `json:"to,omitempty"`  // recipient device id ("signal" only)
+	Count   int            `json:"count,omitempty"`
+	Enc     *Enc           `json:"enc,omitempty"`     // "clip"/"signal"; also "hello" (sealed {name,platform})
 	Devices []RosterDevice `json:"devices,omitempty"` // "roster"
 }
 

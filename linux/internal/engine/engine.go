@@ -63,6 +63,7 @@ type Engine struct {
 	lastHash string
 	paused   atomic.Bool
 	onRoster func(devices []string)
+	onSignal func(fromDev string, payload []byte) // P2P (WebRTC) signaling
 }
 
 // SetPaused toggles syncing without dropping the connection (tray "pause").
@@ -70,6 +71,23 @@ func (e *Engine) SetPaused(p bool) { e.paused.Store(p) }
 
 // SetOnRoster registers a callback invoked with the connected device labels.
 func (e *Engine) SetOnRoster(f func(devices []string)) { e.onRoster = f }
+
+// SetOnSignal registers a callback for inbound (decrypted) P2P signaling payloads.
+func (e *Engine) SetOnSignal(f func(fromDev string, payload []byte)) { e.onSignal = f }
+
+// SendSignal seals a P2P signaling payload and routes it to one peer (relay just
+// forwards it; the file bytes go direct over WebRTC, not through here).
+func (e *Engine) SendSignal(toDev string, payload []byte) {
+	iv, ct, err := e.cipher.Seal(payload)
+	if err != nil {
+		e.log.Printf("signal encrypt failed: %v", err)
+		return
+	}
+	e.tx.Send(wire.Envelope{
+		T: "signal", ID: wire.GenID(), Ts: wire.Now(), Dev: e.dev, To: toDev,
+		Enc: &wire.Enc{V: 1, Alg: "AES-256-GCM", IV: iv, Ct: ct},
+	})
+}
 
 func New(cipher *crypto.Cipher, clip Clipboard, tx Transport, dev, room string, blobClient *blob.Client, logger *log.Logger) *Engine {
 	return &Engine{cipher: cipher, clip: clip, tx: tx, blob: blobClient, room: room, dev: dev, log: logger}
@@ -207,6 +225,16 @@ func (e *Engine) onInbound(env wire.Envelope) {
 		e.log.Printf("peers connected: %d", env.Count)
 	case "roster":
 		e.handleRoster(env)
+	case "signal":
+		if env.Enc == nil || e.onSignal == nil {
+			return
+		}
+		pt, err := e.cipher.Open(env.Enc.IV, env.Enc.Ct)
+		if err != nil {
+			e.log.Printf("signal decrypt failed (wrong secret?)")
+			return
+		}
+		e.onSignal(env.Dev, pt)
 	}
 }
 

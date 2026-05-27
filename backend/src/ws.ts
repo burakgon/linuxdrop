@@ -11,6 +11,11 @@ export type WsData = { room: string; connId: string; dev?: string };
 type RosterEntry = { dev: string; enc: unknown };
 const rosters = new Map<string, Map<string, RosterEntry>>();
 
+// Live socket index per room (connId -> socket), so a `signal` frame can be
+// forwarded to ONE addressed peer (Bun has no built-in send-to-one-by-id).
+// Used only to set up the direct P2P (WebRTC) path; file bytes never come here.
+const conns = new Map<string, Map<string, ServerWebSocket<WsData>>>();
+
 // The relay is a thin pub/sub over Bun's native topics. Each room is a topic;
 // `ws.publish(room, ...)` fans out to every OTHER socket in the room (excludes
 // the sender) — clip relay. `server.publish` includes everyone — used for
@@ -35,10 +40,28 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
     }
   }
 
+  // Forward a `signal` frame to the single peer whose dev id matches `to`.
+  function forwardSignal(room: string, to: string, frame: string) {
+    const peers = conns.get(room);
+    if (!peers) return;
+    for (const peer of peers.values()) {
+      if (peer.data.dev === to) {
+        peer.send(frame);
+        return;
+      }
+    }
+  }
+
   return {
     open(ws: ServerWebSocket<WsData>) {
-      const { room } = ws.data;
+      const { room, connId } = ws.data;
       ws.subscribe(room);
+      let peers = conns.get(room);
+      if (!peers) {
+        peers = new Map();
+        conns.set(room, peers);
+      }
+      peers.set(connId, ws);
       // Catch-up: hand the most recent (encrypted) clip to the new joiner.
       const last = getLastClip(db, room);
       if (last) ws.send(last);
@@ -48,7 +71,7 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
 
     message(ws: ServerWebSocket<WsData>, message: string | Buffer) {
       const text = typeof message === "string" ? message : message.toString("utf8");
-      let msg: { t?: string; id?: string; dev?: unknown; enc?: unknown };
+      let msg: { t?: string; id?: string; dev?: unknown; enc?: unknown; to?: unknown };
       try {
         msg = JSON.parse(text);
       } catch {
@@ -79,6 +102,11 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
         case "ack":
           ws.publish(room, text);
           return;
+        case "signal":
+          // WebRTC offer/answer/ICE for direct P2P — forward to the one addressed
+          // peer only. Opaque (E2E-encrypted); the relay just routes it.
+          if (typeof msg.to === "string") forwardSignal(room, msg.to, text);
+          return;
         default:
           return; // unknown type: drop
       }
@@ -88,6 +116,11 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
       const { room, connId } = ws.data;
       ws.unsubscribe(room);
       removeFromRoster(room, connId);
+      const peers = conns.get(room);
+      if (peers) {
+        peers.delete(connId);
+        if (peers.size === 0) conns.delete(room);
+      }
       publishPeers(room);
       publishRoster(room);
     },

@@ -24,6 +24,7 @@ encrypted**, and the relay that connects your devices is **one you host yourself
 - 🕵️ **Zero-knowledge relay** — the server only sees an opaque room id; it can't read clipboard
   content, device names, or filenames.
 - 📝🖼️ **Text *and* images** — sync clipboard text and images (a screenshot on your phone, pasted on your desktop).
+- 📂 **Direct P2P file transfer** — send any file device-to-device over WebRTC; the bytes go **straight peer-to-peer** (full LAN speed, or hole-punched across networks), never through the relay.
 - 🔋 **Battery-friendly & event-driven** — no polling. On Android it reads the clipboard in the
   background via **Shizuku** (no root); on Linux via `wl-clipboard`.
 - 🕘 **Clipboard history** — the last items are kept locally (encrypted); tap to put one back.
@@ -89,7 +90,11 @@ go build -o bin/bgnconnectd ./cmd/bgnconnectd
 ./bin/bgnconnectd pair <bgnconnect://… | hex> wss://relay.yourdomain.com
 ./bin/bgnconnectd qr          # show a QR for your phone to scan
 ./bin/bgnconnectd run         # start syncing (system tray)
+./bin/bgnconnectd send <file> [device]   # send a file directly (P2P) to a peer
 ```
+
+On Android, tap the **send icon** next to a connected device on the home screen, pick a file,
+and it streams straight to that device (received files land in **Downloads**).
 
 **Android:**
 1. Build/sideload the APK (see [`android/README.md`](android/README.md)) and install **Shizuku**.

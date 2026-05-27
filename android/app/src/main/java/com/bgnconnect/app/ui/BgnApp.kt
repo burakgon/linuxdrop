@@ -2,6 +2,7 @@ package com.bgnconnect.app.ui
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,21 @@ fun BgnApp(vm: MainViewModel) {
     }
     val grantShizuku: () -> Unit = { vm.requestShizukuPermission(SHIZUKU_REQUEST_CODE) }
 
+    // Send a file directly (P2P) to a chosen device: tap a device → pick a file → send.
+    var pendingDev by remember { mutableStateOf<String?>(null) }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = pendingDev
+        pendingDev = null
+        if (uri != null && target != null) {
+            vm.sendFile(target, uri)
+            Toast.makeText(context, "Sending file…", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val sendFileTo: (String) -> Unit = { dev ->
+        pendingDev = dev
+        fileLauncher.launch(arrayOf("*/*"))
+    }
+
     if (!ui.configured) {
         OnboardingScreen(
             ui = ui,
@@ -74,6 +90,7 @@ fun BgnApp(vm: MainViewModel) {
             onScanQr = scan,
             onGrantShizuku = grantShizuku,
             onHistory = { screen = Screen.HISTORY },
+            onSendFile = sendFileTo,
         )
     }
 }

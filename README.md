@@ -90,15 +90,16 @@ go build -o bin/bgnconnectd ./cmd/bgnconnectd
 ./bin/bgnconnectd pair <bgnconnect://… | hex> wss://relay.yourdomain.com
 ./bin/bgnconnectd qr          # show a QR for your phone to scan
 ./bin/bgnconnectd run         # start syncing (system tray)
-./bin/bgnconnectd send <file> [device]   # send a file directly (P2P) to a peer
+./bin/bgnconnectd send [--to <device>] <file>...   # send file(s) directly (P2P) to a peer
 ```
 
 **Sending files is wired into both desktops:**
 - **Android** — **Share → bgnconnect** from any app (or the send icon next to a device on the home
   screen), then pick the target device. Received files land in **Downloads** and appear in the
   in-app **history** (tap to open).
-- **Linux** — the tray menu's **"Send file…"**, or right-click a file → **Open With → bgnconnect**
-  (and dropping files onto the launcher), installed by `install.sh`. Received files land in
+- **Linux (KDE)** — right-click a file in Dolphin → **"Send with bgnconnect"** (a KIO service menu),
+  or the tray menu's **"Send file…"**. For drag-and-drop, pin the **"Send with bgnconnect"** launcher
+  to the panel/desktop and drop files onto it. All installed by `install.sh`. Received files land in
   `~/Downloads` and the folder opens automatically.
 
 **Android:**

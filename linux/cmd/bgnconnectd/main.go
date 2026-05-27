@@ -277,19 +277,18 @@ func cmdSend(logger *log.Logger, args []string) {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	relayFlag := fs.String("relay", "", "override relay URL (ws:// or wss://)")
 	devSecret := fs.String("dev-secret", "", "override shared secret (hex, development)")
+	toFlag := fs.String("to", "", "target device (name or id); otherwise auto/picker")
 	_ = fs.Parse(args)
-	rest := fs.Args()
-	if len(rest) < 1 {
-		logger.Fatal("usage: bgnconnectd send [--relay U] [--dev-secret H] <file> [device]")
+	files := fs.Args()
+	if len(files) < 1 {
+		logger.Fatal("usage: bgnconnectd send [--relay U] [--dev-secret H] [--to DEVICE] <file>...")
 	}
-	file := rest[0]
-	if _, err := os.Stat(file); err != nil {
-		logger.Fatalf("file: %v", err)
+	for _, f := range files {
+		if _, err := os.Stat(f); err != nil {
+			logger.Fatalf("file %q: %v", f, err)
+		}
 	}
-	want := ""
-	if len(rest) >= 2 {
-		want = rest[1]
-	}
+	want := *toFlag
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -375,22 +374,34 @@ func cmdSend(logger *log.Logger, args []string) {
 					done <- fmt.Errorf("device %q not found", want)
 					return
 				}
-				go func() { done <- mgr.SendFile(target, file) }()
+				go func() {
+					for _, f := range files {
+						if err := mgr.SendFile(target, f); err != nil {
+							done <- err
+							return
+						}
+					}
+					done <- nil
+				}()
 			})
 		}
 	}
 
+	label := filepath.Base(files[0])
+	if len(files) > 1 {
+		label = fmt.Sprintf("%d files", len(files))
+	}
 	go client.Run(ctx, onMessage)
-	logger.Printf("connecting to %s to send %q…", relay, filepath.Base(file))
+	logger.Printf("connecting to %s to send %s…", relay, label)
 
 	select {
 	case err := <-done:
 		if err != nil {
-			notify("bgnconnect", "Failed to send "+filepath.Base(file))
+			notify("bgnconnect", "Failed to send "+label)
 			logger.Fatalf("send failed: %v", err)
 		}
-		notify("bgnconnect", "Sent "+filepath.Base(file))
-		logger.Printf("sent %q ✓", filepath.Base(file))
+		notify("bgnconnect", "Sent "+label)
+		logger.Printf("sent %s ✓", label)
 	case <-ctx.Done():
 		notify("bgnconnect", "Send timed out — is the other device online?")
 		logger.Fatal("timed out — is the other device online and on the same network/key?")

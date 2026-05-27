@@ -64,6 +64,25 @@ type Engine struct {
 	paused   atomic.Bool
 	onRoster func(devices []string)
 	onSignal func(fromDev string, payload []byte) // P2P (WebRTC) signaling
+
+	peersMu sync.Mutex
+	peers   []RosterPeer
+}
+
+// RosterPeer is a connected peer device (excluding self), for the "send file" picker.
+type RosterPeer struct {
+	Dev      string
+	Name     string
+	Platform string
+}
+
+// Peers returns the connected peer devices (excluding self), deduped by dev.
+func (e *Engine) Peers() []RosterPeer {
+	e.peersMu.Lock()
+	defer e.peersMu.Unlock()
+	out := make([]RosterPeer, len(e.peers))
+	copy(out, e.peers)
+	return out
 }
 
 // SetPaused toggles syncing without dropping the connection (tray "pause").
@@ -285,9 +304,15 @@ func (e *Engine) onInboundBlob(p payload) {
 }
 
 func (e *Engine) handleRoster(env wire.Envelope) {
+	seen := map[string]bool{}
 	labels := make([]string, 0, len(env.Devices))
+	peers := make([]RosterPeer, 0, len(env.Devices))
 	for _, d := range env.Devices {
-		label := d.Dev
+		if seen[d.Dev] {
+			continue // dedupe by dev (defense; relay also evicts stale conns)
+		}
+		seen[d.Dev] = true
+		name, platform := d.Dev, ""
 		if d.Enc != nil {
 			if pt, err := e.cipher.Open(d.Enc.IV, d.Enc.Ct); err == nil {
 				var p struct {
@@ -295,18 +320,25 @@ func (e *Engine) handleRoster(env wire.Envelope) {
 					Platform string `json:"platform"`
 				}
 				if json.Unmarshal(pt, &p) == nil && p.Name != "" {
-					label = p.Name
-					if p.Platform != "" {
-						label += " · " + p.Platform
-					}
+					name = p.Name
+					platform = p.Platform
 				}
 			}
 		}
+		label := name
+		if platform != "" {
+			label += " · " + platform
+		}
 		if d.Dev == e.dev {
 			label += " (this device)"
+		} else {
+			peers = append(peers, RosterPeer{Dev: d.Dev, Name: name, Platform: platform})
 		}
 		labels = append(labels, label)
 	}
+	e.peersMu.Lock()
+	e.peers = peers
+	e.peersMu.Unlock()
 	e.log.Printf("roster: %d device(s) [%s]", len(labels), strings.Join(labels, ", "))
 	if e.onRoster != nil {
 		e.onRoster(labels)

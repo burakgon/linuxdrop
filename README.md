@@ -93,8 +93,13 @@ go build -o bin/bgnconnectd ./cmd/bgnconnectd
 ./bin/bgnconnectd send <file> [device]   # send a file directly (P2P) to a peer
 ```
 
-On Android, tap the **send icon** next to a connected device on the home screen, pick a file,
-and it streams straight to that device (received files land in **Downloads**).
+**Sending files is wired into both desktops:**
+- **Android** — **Share → bgnconnect** from any app (or the send icon next to a device on the home
+  screen), then pick the target device. Received files land in **Downloads** and appear in the
+  in-app **history** (tap to open).
+- **Linux** — the tray menu's **"Send file…"**, or right-click a file → **Open With → bgnconnect**
+  (and dropping files onto the launcher), installed by `install.sh`. Received files land in
+  `~/Downloads` and the folder opens automatically.
 
 **Android:**
 1. Build/sideload the APK (see [`android/README.md`](android/README.md)) and install **Shizuku**.

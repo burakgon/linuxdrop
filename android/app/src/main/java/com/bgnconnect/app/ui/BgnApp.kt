@@ -3,6 +3,13 @@ package com.bgnconnect.app.ui
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +88,7 @@ fun BgnApp(vm: MainViewModel) {
             onBack = { screen = Screen.HOME },
             onCopy = { vm.copyToClipboard(it) },
             onClear = { vm.clearHistory() },
+            onOpenFile = { vm.openFile(it) },
         )
         Screen.HOME -> HomeScreen(
             ui = ui,
@@ -93,4 +101,60 @@ fun BgnApp(vm: MainViewModel) {
             onSendFile = sendFileTo,
         )
     }
+
+    // Files shared into the app (OS Share sheet) → choose a device to send them to.
+    val pendingShares by vm.pendingShares.collectAsStateWithLifecycle()
+    if (pendingShares.isNotEmpty()) {
+        ShareTargetDialog(
+            devices = ui.sync.devices.filter { !it.self },
+            count = pendingShares.size,
+            onPick = { dev ->
+                pendingShares.forEach { vm.sendFile(dev, it) }
+                vm.clearPendingShares()
+                Toast.makeText(context, "Sending…", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { vm.clearPendingShares() },
+        )
+    }
+}
+
+@Composable
+private fun ShareTargetDialog(
+    devices: List<com.bgnconnect.app.service.SyncStatus.Device>,
+    count: Int,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { androidx.compose.material3.Text(if (count == 1) "Send file to…" else "Send $count files to…") },
+        text = {
+            if (devices.isEmpty()) {
+                androidx.compose.material3.Text("No connected device. Turn on sync and make sure another device is online.")
+            } else {
+                androidx.compose.foundation.layout.Column {
+                    devices.forEach { d ->
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(d.dev) }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                        ) {
+                            androidx.compose.material3.Icon(
+                                if (d.platform == "linux") Icons.Default.Computer else Icons.Default.Smartphone,
+                                contentDescription = null,
+                            )
+                            androidx.compose.material3.Text("${d.name} · ${d.platform}")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { androidx.compose.material3.Text("Cancel") }
+        },
+    )
 }

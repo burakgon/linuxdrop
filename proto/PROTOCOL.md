@@ -139,10 +139,12 @@ GET /ice                       → { "iceServers": [ {urls:"stun:…"}, {urls:"t
 - **ICE config:** clients fetch `/ice` for STUN (always) and TURN (only if the operator set
   `TURN_URL`+`TURN_SECRET`; coturn `use-auth-secret`, time-limited creds). STUN carries no data;
   TURN is an optional fallback relay for strict NATs.
-- **Signaling:** exchanged as `signal` envelopes routed to one peer by `to=<dev>`. The `enc` seals
-  `{ kind:"offer"|"answer"|"candidate", sdp | candidate, origin }`. The **entire SDP (including the
-  DTLS `a=fingerprint`) is E2E-encrypted with the room key**, so a malicious relay cannot MITM the
-  DTLS handshake — the shared secret authenticates the peer. Trickle ICE: candidates flow as they appear.
+- **Signaling:** exchanged as `signal` envelopes routed to one peer by `to=<dev>`. The `enc` seals one of:
+  `{kind:"offer"|"answer", sdp}` or `{kind:"candidate", candidate, sdpMid, sdpMLineIndex}`.
+  **Trickle ICE:** offer/answer are sent immediately after `setLocalDescription`; ICE candidates follow
+  as they're gathered (candidates arriving before the remote SDP is applied are queued, then flushed).
+  The **entire SDP (including the DTLS `a=fingerprint`) is E2E-encrypted with the room key**, so a
+  malicious relay cannot MITM the DTLS handshake — the shared secret authenticates the peer.
 - **Transfer (over the DataChannel `bgn-file`, DTLS-encrypted by WebRTC):**
   1. `{"t":"head","name","size","mime","sha256"}`
   2. binary chunks (~16 KiB, with backpressure)

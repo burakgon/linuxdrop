@@ -16,6 +16,23 @@ mkdir -p "$UNIT_DIR"
 cp packaging/bgnconnect.service "$UNIT_DIR/bgnconnect.service"
 systemctl --user daemon-reload
 
+echo "Installing 'Send with bgnconnect' file-manager action…"
+APP_DIR="$HOME/.local/share/applications"
+mkdir -p "$APP_DIR"
+cat > "$APP_DIR/bgnconnect-send.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Send with bgnconnect
+Comment=Send this file directly to a paired device
+Exec=$BIN_DIR/bgnconnectd send %f
+Icon=document-send
+Terminal=false
+MimeType=application/octet-stream;
+NoDisplay=false
+EOF
+update-desktop-database "$APP_DIR" 2>/dev/null || true
+# → right-click a file → Open With → "Send with bgnconnect", or drop files onto the launcher.
+
 echo
 echo "Installed: $BIN_DIR/bgnconnectd"
 case ":$PATH:" in

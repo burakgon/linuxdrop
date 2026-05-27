@@ -28,7 +28,10 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
 
   function publishRoster(room: string) {
     const entries = rosters.get(room);
-    const devices = entries ? Array.from(entries.values()) : [];
+    // Dedupe by dev (a reconnecting device may briefly have two entries).
+    const byDev = new Map<string, RosterEntry>();
+    if (entries) for (const e of entries.values()) byDev.set(e.dev, e);
+    const devices = Array.from(byDev.values());
     getServer().publish(room, JSON.stringify({ t: "roster", devices, ts: Date.now() }));
   }
 
@@ -85,6 +88,20 @@ export function createWebSocketHandlers(db: Database, getServer: () => Server) {
         case "hello": {
           const dev = typeof msg.dev === "string" ? msg.dev : connId;
           ws.data.dev = dev;
+          // Evict stale connections from the same device (reconnect): close their
+          // sockets so there's one live connection per dev — clean roster + correct
+          // signal routing.
+          const peers = conns.get(room);
+          const roster = rosters.get(room);
+          if (peers) {
+            for (const [otherId, sock] of peers) {
+              if (otherId !== connId && sock.data.dev === dev) {
+                try { sock.close(1000, "replaced by new connection"); } catch {}
+                peers.delete(otherId);
+                roster?.delete(otherId);
+              }
+            }
+          }
           let entries = rosters.get(room);
           if (!entries) {
             entries = new Map();

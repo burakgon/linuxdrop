@@ -14,6 +14,8 @@ type Callbacks struct {
 	OnQuit        func()
 	OnTogglePause func(paused bool)
 	OnShowQR      func()
+	OnSendFile    func()
+	OnOpenFolder  func()
 }
 
 type Tray struct {
@@ -58,6 +60,9 @@ func (t *Tray) onReady() {
 	t.statusItem.Disable()
 	systray.AddSeparator()
 	t.pauseItem = systray.AddMenuItem("Pause", "Pause syncing")
+	systray.AddSeparator()
+	sendItem := systray.AddMenuItem("Send file…", "Send a file directly to a device")
+	openItem := systray.AddMenuItem("Open received files", "Open the Downloads folder")
 	qrItem := systray.AddMenuItem("Show pairing QR", "Pairing QR")
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("Quit", "Stop the daemon")
@@ -75,6 +80,14 @@ func (t *Tray) onReady() {
 					t.cb.OnTogglePause(p)
 				}
 				t.refresh()
+			case <-sendItem.ClickedCh:
+				if t.cb.OnSendFile != nil {
+					go t.cb.OnSendFile()
+				}
+			case <-openItem.ClickedCh:
+				if t.cb.OnOpenFolder != nil {
+					go t.cb.OnOpenFolder()
+				}
 			case <-qrItem.ClickedCh:
 				if t.cb.OnShowQR != nil {
 					t.cb.OnShowQR()

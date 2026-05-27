@@ -3,8 +3,10 @@ package com.bgnconnect.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import androidx.core.content.IntentCompat
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,12 +40,27 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleDeepLink(intent)
+        handleSendIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDeepLink(intent)
+        handleSendIntent(intent)
+    }
+
+    /** Files shared into the app via the OS Share sheet → await a device choice in the UI. */
+    private fun handleSendIntent(intent: Intent?) {
+        intent ?: return
+        val uris = when (intent.action) {
+            Intent.ACTION_SEND ->
+                listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) ?: emptyList()
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) vm.setPendingShares(uris)
     }
 
     /** Pair via a bgnconnect:// link (QR alternative): am start -a VIEW -d "bgnconnect://pair?...". */

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +45,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bgnconnect.app.service.ClipHistory
 
 @Composable
-fun HistoryScreen(onBack: () -> Unit, onCopy: (String) -> Unit, onClear: () -> Unit) {
+fun HistoryScreen(
+    onBack: () -> Unit,
+    onCopy: (String) -> Unit,
+    onClear: () -> Unit,
+    onOpenFile: (String) -> Unit,
+) {
     val context = LocalContext.current
     val items by ClipHistory.items.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
@@ -76,8 +82,14 @@ fun HistoryScreen(onBack: () -> Unit, onCopy: (String) -> Unit, onClear: () -> U
             ) {
                 items(items) { item ->
                     HistoryRow(item, now) {
-                        onCopy(item.text)
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        when {
+                            item.kind == "file" && !item.outgoing && item.uri != null -> onOpenFile(item.uri!!)
+                            item.kind == "file" -> Toast.makeText(context, "Sent file", Toast.LENGTH_SHORT).show()
+                            else -> {
+                                onCopy(item.text)
+                                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 }
             }
@@ -99,14 +111,20 @@ fun HistoryScreen(onBack: () -> Unit, onCopy: (String) -> Unit, onClear: () -> U
 
 @Composable
 private fun HistoryRow(item: ClipHistory.Item, now: Long, onClick: () -> Unit) {
+    val isFile = item.kind == "file"
     ElevatedCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                item.text,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isFile) {
+                    Icon(Icons.Default.InsertDriveFile, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                Text(
+                    item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = if (isFile) 1 else 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -117,14 +135,28 @@ private fun HistoryRow(item: ClipHistory.Item, now: Long, onClick: () -> Unit) {
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val dir = if (item.outgoing) "Sent" else "Received"
+                val detail = if (isFile) {
+                    formatSize(item.size) + (if (!item.outgoing && item.uri != null) " · tap to open" else "")
+                } else {
+                    "${item.text.length} chars"
+                }
                 Text(
-                    "${if (item.outgoing) "Sent" else "Received"} · ${relTime(item.ts, now)} · ${item.text.length} chars",
+                    "$dir · ${relTime(item.ts, now)} · $detail",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
+}
+
+private fun formatSize(bytes: Long): String = when {
+    bytes <= 0 -> "file"
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+    bytes < 1024L * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024))} MB"
+    else -> "${"%.1f".format(bytes / (1024.0 * 1024 * 1024))} GB"
 }
 
 @Composable

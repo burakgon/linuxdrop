@@ -36,6 +36,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(build())
     val ui: StateFlow<UiModel> = _ui
 
+    // Files handed to us via the OS Share sheet, awaiting a device choice.
+    private val _pendingShares = MutableStateFlow<List<android.net.Uri>>(emptyList())
+    val pendingShares: StateFlow<List<android.net.Uri>> = _pendingShares
+    fun setPendingShares(uris: List<android.net.Uri>) { _pendingShares.value = uris }
+    fun clearPendingShares() { _pendingShares.value = emptyList() }
+
     init {
         ClipHistory.ensure(app)
         viewModelScope.launch { SyncStatus.state.collect { refresh() } }
@@ -119,6 +125,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Send a file directly (P2P) to a peer device — bytes go peer-to-peer, not via the relay. */
     fun sendFile(toDev: String, uri: android.net.Uri) {
         SyncForegroundService.sendFile(getApplication(), toDev, uri)
+    }
+
+    /** Open a received file (from history) in its default app. */
+    fun openFile(uriString: String) {
+        val app = getApplication<Application>()
+        val uri = android.net.Uri.parse(uriString)
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, app.contentResolver.getType(uri) ?: "*/*")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { app.startActivity(intent) }
     }
 
     private fun restartIfRunning() {

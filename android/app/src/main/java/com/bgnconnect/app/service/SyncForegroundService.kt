@@ -113,8 +113,14 @@ class SyncForegroundService : Service() {
                 val (iv, ct) = crypto.seal(payload)
                 ws.sendSignal(toDev, iv, ct, randomId())
             },
-            onReceived = { name -> notifyFile("Received $name") },
-            onSent = { name, ok -> notifyFile(if (ok) "Sent $name" else "Failed to send $name") },
+            onReceived = { name, size, uri ->
+                ClipHistory.addFile(this, name, outgoing = false, size = size, uri = uri?.toString())
+                notifyFile("Received $name")
+            },
+            onSent = { name, size, ok ->
+                if (ok) ClipHistory.addFile(this, name, outgoing = true, size = size, uri = null)
+                notifyFile(if (ok) "Sent $name" else "Failed to send $name")
+            },
         )
 
         return START_STICKY
@@ -270,7 +276,7 @@ class SyncForegroundService : Service() {
 
     /** Decrypt each roster entry into a device for the UI; mark self by device id. */
     private fun onRoster(entries: List<WsClient.RosterEntry>) {
-        val devices = entries.map { e ->
+        val devices = entries.distinctBy { it.dev }.map { e ->
             var name = e.dev
             var platform = "?"
             val iv = e.iv

@@ -162,6 +162,24 @@ test("signal is delivered only to the addressed peer", async () => {
   c.close();
 });
 
+test("a second hello with the same dev evicts the first (no duplicate)", async () => {
+  const a = await open();
+  a.send(hello("dupdev"));
+  await Bun.sleep(80);
+  const b = await open();
+  b.send(hello("dupdev")); // same dev → relay evicts a
+  await Bun.sleep(80);
+
+  const c = await open();
+  const roster = await nextMessage(c, (m) => m.t === "roster");
+  const dups = (roster.devices as Array<{ dev: string }>).filter((d) => d.dev === "dupdev");
+  expect(dups.length).toBe(1);
+  expect(a.readyState).toBe(WebSocket.CLOSED); // first connection was closed
+
+  b.close();
+  c.close();
+});
+
 test("/ice returns STUN ice servers", async () => {
   const r = await fetch(`${HTTP}/ice`);
   expect(r.status).toBe(200);

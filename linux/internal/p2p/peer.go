@@ -1,12 +1,12 @@
 // Package p2p does direct, peer-to-peer file transfer over a WebRTC DataChannel.
-// File bytes never touch the relay: it carries only the (E2E-encrypted) SDP
+// File bytes never touch the relay: it carries only the (E2E-encrypted) SDP/ICE
 // signaling. Same-LAN peers get a direct local link at full speed; across networks
 // ICE hole-punches via STUN (TURN optional). See proto/PROTOCOL.md §7.
 //
-// Negotiation is non-trickle for simplicity + cross-platform parity: each side
-// gathers ICE fully, then sends one complete SDP (offer/answer). The transfer
-// itself is message-framed (a JSON head, binary chunks, a JSON done) so the Go and
-// Android sides interoperate without relying on byte-stream semantics.
+// Trickle ICE: each side sends its offer/answer immediately, then streams ICE
+// candidates as they're gathered (candidates received before the remote SDP is
+// applied are queued). The transfer is message-framed (a JSON head, binary chunks,
+// a JSON done) so the Go and Android sides interoperate.
 package p2p
 
 import (
@@ -18,7 +18,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,22 +27,24 @@ import (
 )
 
 const (
-	chunkSize    = 16 * 1024  // SCTP-safe DataChannel message size
-	maxBuffered  = 1 << 20    // 1 MiB high-water mark for backpressure
+	chunkSize    = 16 * 1024
+	maxBuffered  = 1 << 20
 	channelLabel = "bgn-file"
 	sendTimeout  = 15 * time.Minute
 )
 
 // Signal is the WebRTC negotiation payload, sealed inside a relay `signal` frame.
 type Signal struct {
-	Kind   string `json:"kind"` // "offer" | "answer"
-	SDP    string `json:"sdp"`
-	Origin string `json:"origin,omitempty"`
+	Kind          string  `json:"kind"` // "offer" | "answer" | "candidate"
+	SDP           string  `json:"sdp,omitempty"`
+	Candidate     string  `json:"candidate,omitempty"`
+	SDPMid        string  `json:"sdpMid,omitempty"`
+	SDPMLineIndex *uint16 `json:"sdpMLineIndex,omitempty"`
+	Origin        string  `json:"origin,omitempty"`
 }
 
-// head is the first DataChannel message (text); chunks follow (binary); then done.
 type head struct {
-	T    string `json:"t"` // "head"
+	T    string `json:"t"`
 	Name string `json:"name"`
 	Size int64  `json:"size"`
 	Mime string `json:"mime"`
@@ -58,15 +59,50 @@ type ctrl struct {
 // SendSignalFunc seals + sends a signal payload to a peer dev id via the relay.
 type SendSignalFunc func(toDev string, payload []byte)
 
+// session is one peer connection with trickle-ICE candidate queueing.
+type session struct {
+	pc        *webrtc.PeerConnection
+	mu        sync.Mutex
+	remoteSet bool
+	pending   []webrtc.ICECandidateInit
+}
+
+func (s *session) addCandidate(c webrtc.ICECandidateInit) {
+	s.mu.Lock()
+	if !s.remoteSet {
+		s.pending = append(s.pending, c)
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	_ = s.pc.AddICECandidate(c)
+}
+
+func (s *session) setRemote(desc webrtc.SessionDescription) error {
+	if err := s.pc.SetRemoteDescription(desc); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.remoteSet = true
+	pend := s.pending
+	s.pending = nil
+	s.mu.Unlock()
+	for _, c := range pend {
+		_ = s.pc.AddICECandidate(c)
+	}
+	return nil
+}
+
 type Manager struct {
 	dev         string
-	iceBase     string // http(s) origin of the relay (GET /ice)
+	iceBase     string
 	downloadDir string
 	log         *log.Logger
 	sendSignal  SendSignalFunc
+	onReceived  func(path string)
 
 	mu    sync.Mutex
-	peers map[string]*webrtc.PeerConnection // keyed by remote dev
+	peers map[string]*session
 	api   *webrtc.API
 }
 
@@ -76,12 +112,13 @@ func NewManager(dev, relayURL, downloadDir string, logger *log.Logger) *Manager 
 		iceBase:     wsToHTTP(relayURL),
 		downloadDir: downloadDir,
 		log:         logger,
-		peers:       map[string]*webrtc.PeerConnection{},
+		peers:       map[string]*session{},
 		api:         webrtc.NewAPI(),
 	}
 }
 
-func (m *Manager) SetSendSignal(f SendSignalFunc) { m.sendSignal = f }
+func (m *Manager) SetSendSignal(f SendSignalFunc)   { m.sendSignal = f }
+func (m *Manager) SetOnReceived(f func(path string)) { m.onReceived = f }
 
 func wsToHTTP(u string) string {
 	u = strings.TrimRight(u, "/")
@@ -95,13 +132,19 @@ func wsToHTTP(u string) string {
 	}
 }
 
-func (m *Manager) track(dev string, pc *webrtc.PeerConnection) {
+func (m *Manager) track(dev string, s *session) {
 	m.mu.Lock()
 	if old := m.peers[dev]; old != nil {
-		_ = old.Close()
+		_ = old.pc.Close()
 	}
-	m.peers[dev] = pc
+	m.peers[dev] = s
 	m.mu.Unlock()
+}
+
+func (m *Manager) get(dev string) *session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.peers[dev]
 }
 
 func (m *Manager) untrack(dev string) {
@@ -119,8 +162,18 @@ func (m *Manager) emit(toDev string, sig Signal) {
 	m.sendSignal(toDev, b)
 }
 
-// iceServers fetches the relay's ICE config (STUN, + TURN if configured), with a
-// public-STUN fallback if the relay is unreachable.
+func (m *Manager) emitCandidate(toDev string, c *webrtc.ICECandidate) {
+	if c == nil {
+		return
+	}
+	j := c.ToJSON()
+	sig := Signal{Kind: "candidate", Candidate: j.Candidate, SDPMLineIndex: j.SDPMLineIndex}
+	if j.SDPMid != nil {
+		sig.SDPMid = *j.SDPMid
+	}
+	m.emit(toDev, sig)
+}
+
 func (m *Manager) iceServers() []webrtc.ICEServer {
 	def := []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}}
 	resp, err := http.Get(m.iceBase + "/ice")
@@ -181,19 +234,25 @@ func (m *Manager) OnSignal(fromDev string, payload []byte) {
 	case "offer":
 		m.handleOffer(fromDev, sig.SDP)
 	case "answer":
-		m.mu.Lock()
-		pc := m.peers[fromDev]
-		m.mu.Unlock()
-		if pc != nil {
-			if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sig.SDP}); err != nil {
+		if s := m.get(fromDev); s != nil {
+			if err := s.setRemote(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: sig.SDP}); err != nil {
 				m.log.Printf("p2p: set answer: %v", err)
 			}
+		}
+	case "candidate":
+		if s := m.get(fromDev); s != nil {
+			init := webrtc.ICECandidateInit{Candidate: sig.Candidate, SDPMLineIndex: sig.SDPMLineIndex}
+			if sig.SDPMid != "" {
+				mid := sig.SDPMid
+				init.SDPMid = &mid
+			}
+			s.addCandidate(init)
 		}
 	}
 }
 
-// SendFile establishes a connection to toDev and streams path over it. Blocks until
-// the receiver acknowledges completion (or it fails / times out).
+// SendFile establishes a connection to toDev and streams path. Blocks until the
+// receiver acknowledges completion (or it fails / times out).
 func (m *Manager) SendFile(toDev, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -214,10 +273,12 @@ func (m *Manager) SendFile(toDev, path string) error {
 		pc.Close()
 		return err
 	}
-	m.track(toDev, pc)
+	sess := &session{pc: pc}
+	m.track(toDev, sess)
 	defer func() { pc.Close(); m.untrack(toDev) }()
 
 	result := make(chan error, 1)
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) { m.emitCandidate(toDev, c) })
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		m.log.Printf("p2p[%s]: %s", toDev, s)
 		if s == webrtc.PeerConnectionStateFailed {
@@ -247,8 +308,7 @@ func (m *Manager) SendFile(toDev, path string) error {
 		}
 	})
 	dc.OnOpen(func() {
-		mime := mimeByExt(path)
-		go sendAll(dc, f, head{T: "head", Name: filepath.Base(path), Size: st.Size(), Mime: mime}, m.log)
+		go sendAll(dc, f, head{T: "head", Name: filepath.Base(path), Size: st.Size(), Mime: mimeByExt(path)}, m.log)
 	})
 
 	offer, err := pc.CreateOffer(nil)
@@ -258,8 +318,7 @@ func (m *Manager) SendFile(toDev, path string) error {
 	if err := pc.SetLocalDescription(offer); err != nil {
 		return err
 	}
-	<-webrtc.GatheringCompletePromise(pc)
-	m.emit(toDev, Signal{Kind: "offer", SDP: pc.LocalDescription().SDP})
+	m.emit(toDev, Signal{Kind: "offer", SDP: offer.SDP}) // trickle: send immediately
 	m.log.Printf("p2p[%s]: offer sent (%s, %d bytes)", toDev, filepath.Base(path), st.Size())
 
 	select {
@@ -267,7 +326,7 @@ func (m *Manager) SendFile(toDev, path string) error {
 		if err == nil {
 			m.log.Printf("p2p[%s]: transfer complete", toDev)
 		}
-		time.Sleep(200 * time.Millisecond) // let the final ack flush
+		time.Sleep(200 * time.Millisecond)
 		return err
 	case <-time.After(sendTimeout):
 		return fmt.Errorf("transfer timed out")
@@ -280,7 +339,9 @@ func (m *Manager) handleOffer(fromDev, sdp string) {
 		m.log.Printf("p2p: newPC: %v", err)
 		return
 	}
-	m.track(fromDev, pc)
+	sess := &session{pc: pc}
+	m.track(fromDev, sess)
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) { m.emitCandidate(fromDev, c) })
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		m.log.Printf("p2p[%s]: %s", fromDev, s)
 		if s == webrtc.PeerConnectionStateFailed || s == webrtc.PeerConnectionStateClosed {
@@ -289,7 +350,7 @@ func (m *Manager) handleOffer(fromDev, sdp string) {
 	})
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) { m.receive(fromDev, dc) })
 
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp}); err != nil {
+	if err := sess.setRemote(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: sdp}); err != nil {
 		m.log.Printf("p2p: set offer: %v", err)
 		return
 	}
@@ -301,11 +362,9 @@ func (m *Manager) handleOffer(fromDev, sdp string) {
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return
 	}
-	<-webrtc.GatheringCompletePromise(pc)
-	m.emit(fromDev, Signal{Kind: "answer", SDP: pc.LocalDescription().SDP})
+	m.emit(fromDev, Signal{Kind: "answer", SDP: answer.SDP}) // trickle: send immediately
 }
 
-// receive consumes head + chunks + done on dc, writing to the downloads dir.
 func (m *Manager) receive(fromDev string, dc *webrtc.DataChannel) {
 	var (
 		h        head
@@ -365,11 +424,12 @@ func (m *Manager) receive(fromDev string, dc *webrtc.DataChannel) {
 				ok, _ := json.Marshal(ctrl{T: "ok"})
 				_ = dc.SendText(string(ok))
 				m.log.Printf("p2p[%s]: saved %s", fromDev, final)
-				notify("bgnconnect", "Received "+filepath.Base(final))
+				if m.onReceived != nil {
+					m.onReceived(final)
+				}
 			}
 			return
 		}
-		// binary chunk
 		if tmp == nil {
 			return
 		}
@@ -431,10 +491,6 @@ func uniquePath(dir, name string) string {
 			return p
 		}
 	}
-}
-
-func notify(title, body string) {
-	_ = exec.Command("notify-send", "-a", "bgnconnect", title, body).Start()
 }
 
 func mimeByExt(path string) string {

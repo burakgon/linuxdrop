@@ -23,23 +23,23 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Direct peer-to-peer file transfer over a WebRTC DataChannel. File bytes go
- * straight to the peer (LAN-direct, or hole-punched across networks); the relay
- * carries only the E2E-encrypted SDP signaling. Mirrors the Go side
- * (linux/internal/p2p): non-trickle offer/answer, message-framed transfer
- * (head → binary chunks → done{sha256}), receiver replies ok/err. See PROTOCOL.md §7.
+ * straight to the peer (LAN-direct, or hole-punched); the relay carries only the
+ * E2E-encrypted SDP/ICE signaling. Mirrors linux/internal/p2p: trickle ICE
+ * (offer/answer sent immediately, candidates streamed + queued until remote SDP is
+ * set), message-framed transfer (head → binary chunks → done{sha256}), receiver
+ * replies ok/err. See PROTOCOL.md §7.
  */
 class P2pManager(
     context: Context,
     relayBaseUrl: String,
     private val dev: String,
     private val sendSignal: (toDev: String, payload: ByteArray) -> Unit,
-    private val onReceived: (name: String) -> Unit = {},
-    private val onSent: (name: String, ok: Boolean) -> Unit = { _, _ -> },
+    private val onReceived: (name: String, size: Long, uri: Uri?) -> Unit = { _, _, _ -> },
+    private val onSent: (name: String, size: Long, ok: Boolean) -> Unit = { _, _, _ -> },
 ) {
     private val appContext = context.applicationContext
     private val httpBase = run {
@@ -52,94 +52,115 @@ class P2pManager(
     }
     private val http = OkHttpClient()
     private val factory: PeerConnectionFactory
-    private val peers = ConcurrentHashMap<String, PeerConnection>()
-    private val io = Executors.newCachedThreadPool()
+    private val peers = ConcurrentHashMap<String, Session>()
 
     init {
         ensureFactoryInit(appContext)
         factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
 
+    /** One peer connection with trickle-ICE candidate queueing. */
+    private inner class Session(val pc: PeerConnection) {
+        private val lock = Any()
+        private var remoteSet = false
+        private val pending = ArrayList<IceCandidate>()
+
+        fun addCandidate(c: IceCandidate) {
+            synchronized(lock) {
+                if (!remoteSet) {
+                    pending.add(c)
+                    return
+                }
+            }
+            runCatching { pc.addIceCandidate(c) }
+        }
+
+        fun setRemote(desc: SessionDescription, onDone: () -> Unit = {}) {
+            pc.setRemoteDescription(object : SimpleSdp() {
+                override fun onSetSuccess() {
+                    val flush: List<IceCandidate>
+                    synchronized(lock) {
+                        remoteSet = true
+                        flush = ArrayList(pending)
+                        pending.clear()
+                    }
+                    flush.forEach { runCatching { pc.addIceCandidate(it) } }
+                    onDone()
+                }
+            }, desc)
+        }
+    }
+
     // ---- public API ------------------------------------------------------------
 
-    /** Send a content uri to the peer dev id over a fresh direct connection. */
     fun sendFile(toDev: String, uri: Uri) {
         val (name, size) = queryMeta(uri)
         val mime = appContext.contentResolver.getType(uri) ?: "application/octet-stream"
-        val servers = iceServers()
-        val pc = factory.createPeerConnection(PeerConnection.RTCConfiguration(servers), object : PcObserver() {
-            override fun onIceGatheringChange(s: PeerConnection.IceGatheringState?) {
-                if (s == PeerConnection.IceGatheringState.COMPLETE) {
-                    val local = peers[toDev]?.localDescription ?: return
-                    sendSig(toDev, "offer", local.description)
-                }
-            }
-        }) ?: run { onSent(name, false); return }
-        peers[toDev] = pc
+        val config = PeerConnection.RTCConfiguration(iceServers())
+        val pc = factory.createPeerConnection(config, object : PcObserver() {
+            override fun onIceCandidate(c: IceCandidate?) { c?.let { sendCandidate(toDev, it) } }
+        }) ?: run { onSent(name, size, false); return }
+        peers[toDev] = Session(pc)
 
         val dc = pc.createDataChannel(CHANNEL, DataChannel.Init())
         dc.registerObserver(object : DataChannel.Observer {
             override fun onBufferedAmountChange(prev: Long) {}
             override fun onStateChange() {
-                if (dc.state() == DataChannel.State.OPEN) {
-                    io.execute { streamFile(dc, uri, name, size, mime); }
-                }
+                if (dc.state() == DataChannel.State.OPEN) Thread { streamFile(dc, uri, name, size, mime) }.start()
             }
             override fun onMessage(buffer: DataChannel.Buffer) {
                 if (buffer.binary) return
                 val o = readJson(buffer) ?: return
                 when (o.optString("t")) {
-                    "ok" -> { onSent(name, true); closePeer(toDev) }
-                    "err" -> { onSent(name, false); closePeer(toDev) }
+                    "ok" -> { onSent(name, size, true); closePeer(toDev) }
+                    "err" -> { onSent(name, size, false); closePeer(toDev) }
                 }
             }
         })
 
         pc.createOffer(object : SimpleSdp() {
             override fun onCreateSuccess(sdp: SessionDescription) {
-                pc.setLocalDescription(SimpleSdp(), sdp) // gather → onIceGatheringChange sends it
+                pc.setLocalDescription(SimpleSdp(), sdp)
+                sendSig(toDev, "offer", sdp.description) // trickle: send immediately
             }
         }, MediaConstraints())
     }
 
-    /** Handle an inbound (already-decrypted) signaling payload. */
     fun onSignal(fromDev: String, payload: ByteArray) {
         val sig = runCatching { JSONObject(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return
         when (sig.optString("kind")) {
             "offer" -> handleOffer(fromDev, sig.optString("sdp"))
-            "answer" -> peers[fromDev]?.setRemoteDescription(
-                SimpleSdp(), SessionDescription(SessionDescription.Type.ANSWER, sig.optString("sdp")),
+            "answer" -> peers[fromDev]?.setRemote(SessionDescription(SessionDescription.Type.ANSWER, sig.optString("sdp")))
+            "candidate" -> peers[fromDev]?.addCandidate(
+                IceCandidate(sig.optString("sdpMid"), sig.optInt("sdpMLineIndex"), sig.optString("candidate")),
             )
         }
     }
 
     fun close() {
-        peers.values.forEach { runCatching { it.close() } }
+        peers.values.forEach { runCatching { it.pc.close() } }
         peers.clear()
     }
 
     // ---- receive (answerer) ----------------------------------------------------
 
     private fun handleOffer(fromDev: String, sdp: String) {
-        val pc = factory.createPeerConnection(PeerConnection.RTCConfiguration(iceServers()), object : PcObserver() {
-            override fun onIceGatheringChange(s: PeerConnection.IceGatheringState?) {
-                if (s == PeerConnection.IceGatheringState.COMPLETE) {
-                    peers[fromDev]?.localDescription?.let { sendSig(fromDev, "answer", it.description) }
-                }
-            }
+        val config = PeerConnection.RTCConfiguration(iceServers())
+        val pc = factory.createPeerConnection(config, object : PcObserver() {
+            override fun onIceCandidate(c: IceCandidate?) { c?.let { sendCandidate(fromDev, it) } }
             override fun onDataChannel(dc: DataChannel) = receive(fromDev, dc)
         }) ?: return
-        peers[fromDev] = pc
+        val sess = Session(pc)
+        peers[fromDev] = sess
 
-        pc.setRemoteDescription(object : SimpleSdp() {
-            override fun onSetSuccess() {
-                pc.createAnswer(object : SimpleSdp() {
-                    override fun onCreateSuccess(answer: SessionDescription) {
-                        pc.setLocalDescription(SimpleSdp(), answer)
-                    }
-                }, MediaConstraints())
-            }
-        }, SessionDescription(SessionDescription.Type.OFFER, sdp))
+        sess.setRemote(SessionDescription(SessionDescription.Type.OFFER, sdp)) {
+            pc.createAnswer(object : SimpleSdp() {
+                override fun onCreateSuccess(answer: SessionDescription) {
+                    pc.setLocalDescription(SimpleSdp(), answer)
+                    sendSig(fromDev, "answer", answer.description) // trickle: send immediately
+                }
+            }, MediaConstraints())
+        }
     }
 
     private fun receive(fromDev: String, dc: DataChannel) {
@@ -202,7 +223,7 @@ class P2pManager(
                     appContext.contentResolver.update(u, v, null, null)
                     dc.send(textBuffer(JSONObject().put("t", "ok")))
                     Log.i(TAG, "saved $name")
-                    onReceived(name)
+                    onReceived(name, if (expected > 0) expected else received, u)
                 } else {
                     appContext.contentResolver.delete(u, null, null)
                     dc.send(textBuffer(JSONObject().put("t", "err").put("msg", "size/hash mismatch")))
@@ -240,7 +261,7 @@ class P2pManager(
             Log.i(TAG, "streamed $name ($size bytes)")
         }.onFailure {
             Log.e(TAG, "stream failed", it)
-            onSent(name, false)
+            onSent(name, size, false)
         }
     }
 
@@ -251,8 +272,18 @@ class P2pManager(
         sendSignal(toDev, payload.toString().toByteArray(Charsets.UTF_8))
     }
 
+    private fun sendCandidate(toDev: String, c: IceCandidate) {
+        val payload = JSONObject()
+            .put("kind", "candidate")
+            .put("candidate", c.sdp)
+            .put("sdpMid", c.sdpMid)
+            .put("sdpMLineIndex", c.sdpMLineIndex)
+            .put("origin", dev)
+        sendSignal(toDev, payload.toString().toByteArray(Charsets.UTF_8))
+    }
+
     private fun closePeer(dev: String) {
-        peers.remove(dev)?.let { runCatching { it.close() } }
+        peers.remove(dev)?.let { runCatching { it.pc.close() } }
     }
 
     private fun iceServers(): List<PeerConnection.IceServer> {
@@ -331,7 +362,7 @@ class P2pManager(
         private const val TAG = "bgnP2p"
         private const val CHANNEL = "bgn-file"
         private const val CHUNK = 16 * 1024
-        private const val MAX_BUFFERED = 1L shl 20 // 1 MiB
+        private const val MAX_BUFFERED = 1L shl 20
         private val factoryInited = AtomicBoolean(false)
 
         private fun ensureFactoryInit(ctx: Context) {

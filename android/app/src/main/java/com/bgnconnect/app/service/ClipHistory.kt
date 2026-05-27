@@ -19,7 +19,14 @@ import org.json.JSONObject
  */
 object ClipHistory {
 
-    data class Item(val text: String, val ts: Long, val outgoing: Boolean)
+    data class Item(
+        val text: String,           // clip text, or (for files) the file name
+        val ts: Long,
+        val outgoing: Boolean,
+        val kind: String = "text",  // "text" | "file"
+        val size: Long = 0,         // file byte size
+        val uri: String? = null,    // file content uri (received files, to open)
+    )
 
     private const val MAX = 50
     private const val FILE = "bgnconnect_history"
@@ -59,6 +66,15 @@ object ClipHistory {
         write(p, next)
     }
 
+    /** Record a transferred file (P2P). */
+    fun addFile(ctx: Context, name: String, outgoing: Boolean, size: Long, uri: String?) {
+        if (name.isEmpty()) return
+        val p = prefs(ctx)
+        val next = (listOf(Item(name, System.currentTimeMillis(), outgoing, "file", size, uri)) + _items.value).take(MAX)
+        _items.value = next
+        write(p, next)
+    }
+
     fun clear(ctx: Context) {
         val p = prefs(ctx)
         _items.value = emptyList()
@@ -71,14 +87,23 @@ object ClipHistory {
             val arr = JSONArray(raw)
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
-                Item(o.getString("t"), o.getLong("ts"), o.optBoolean("o"))
+                Item(
+                    o.getString("t"), o.getLong("ts"), o.optBoolean("o"),
+                    o.optString("k", "text"), o.optLong("sz", 0),
+                    o.optString("u", "").ifEmpty { null },
+                )
             }
         }.getOrDefault(emptyList())
     }
 
     private fun write(p: SharedPreferences, items: List<Item>) {
         val arr = JSONArray()
-        items.forEach { arr.put(JSONObject().put("t", it.text).put("ts", it.ts).put("o", it.outgoing)) }
+        items.forEach {
+            arr.put(
+                JSONObject().put("t", it.text).put("ts", it.ts).put("o", it.outgoing)
+                    .put("k", it.kind).put("sz", it.size).put("u", it.uri ?: ""),
+            )
+        }
         p.edit().putString(KEY, arr.toString()).apply()
     }
 }

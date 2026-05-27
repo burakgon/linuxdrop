@@ -181,6 +181,10 @@ func cmdRun(logger *log.Logger, args []string) {
 	p2pMgr := p2p.NewManager(dev, relay, downloadsDir(), logger)
 	p2pMgr.SetSendSignal(eng.SendSignal)
 	eng.SetOnSignal(p2pMgr.OnSignal)
+	p2pMgr.SetOnReceived(func(path string) {
+		notify("bgnconnect", "Received "+filepath.Base(path))
+		_ = exec.Command("xdg-open", filepath.Dir(path)).Start() // reveal the folder
+	})
 
 	go func() {
 		if err := eng.Run(ctx); err != nil && ctx.Err() == nil {
@@ -207,7 +211,25 @@ func cmdRun(logger *log.Logger, args []string) {
 				logger.Println("resumed")
 			}
 		},
-		OnShowQR: func() { showPairingQR(logger, secret, relay) },
+		OnShowQR:     func() { showPairingQR(logger, secret, relay) },
+		OnOpenFolder: func() { _ = exec.Command("xdg-open", downloadsDir()).Start() },
+		OnSendFile: func() {
+			path, ok := pickFile()
+			if !ok {
+				return
+			}
+			dev, ok := pickDevice(eng.Peers())
+			if !ok {
+				return
+			}
+			logger.Printf("sending %q to %s…", filepath.Base(path), dev)
+			if err := p2pMgr.SendFile(dev, path); err != nil {
+				logger.Printf("send failed: %v", err)
+				notify("bgnconnect", "Failed to send "+filepath.Base(path))
+			} else {
+				notify("bgnconnect", "Sent "+filepath.Base(path))
+			}
+		},
 	})
 	go func() {
 		<-ctx.Done()
@@ -317,10 +339,7 @@ func cmdSend(logger *log.Logger, args []string) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	var once sync.Once
-	fire := func(target string) {
-		once.Do(func() { go func() { done <- mgr.SendFile(target, file) }() })
-	}
+	var pickOnce sync.Once
 
 	onMessage := func(env wire.Envelope) {
 		switch env.T {
@@ -332,9 +351,32 @@ func cmdSend(logger *log.Logger, args []string) {
 				mgr.OnSignal(env.Dev, pt)
 			}
 		case "roster":
-			if target := pickTarget(cipher, env.Devices, dev, want); target != "" {
-				fire(target)
+			peers := rosterPeers(cipher, env.Devices, dev)
+			if len(peers) == 0 {
+				return
 			}
+			pickOnce.Do(func() {
+				target := ""
+				switch {
+				case want != "":
+					for _, p := range peers {
+						if p.Dev == want || strings.EqualFold(p.Name, want) {
+							target = p.Dev
+						}
+					}
+				case len(peers) == 1:
+					target = peers[0].Dev
+				default:
+					if d, ok := pickDevice(peers); ok {
+						target = d
+					}
+				}
+				if target == "" {
+					done <- fmt.Errorf("device %q not found", want)
+					return
+				}
+				go func() { done <- mgr.SendFile(target, file) }()
+			})
 		}
 	}
 
@@ -344,49 +386,114 @@ func cmdSend(logger *log.Logger, args []string) {
 	select {
 	case err := <-done:
 		if err != nil {
+			notify("bgnconnect", "Failed to send "+filepath.Base(file))
 			logger.Fatalf("send failed: %v", err)
 		}
+		notify("bgnconnect", "Sent "+filepath.Base(file))
 		logger.Printf("sent %q ✓", filepath.Base(file))
 	case <-ctx.Done():
+		notify("bgnconnect", "Send timed out — is the other device online?")
 		logger.Fatal("timed out — is the other device online and on the same network/key?")
 	}
 }
 
-// pickTarget chooses a recipient dev id from the roster: matches the given name/id,
-// or the sole other device when none is specified.
-func pickTarget(cipher *crypto.Cipher, devices []wire.RosterDevice, self, want string) string {
-	type cand struct{ dev, name string }
-	var others []cand
+// rosterPeers decrypts roster entries into peers (excluding self), deduped by dev.
+func rosterPeers(cipher *crypto.Cipher, devices []wire.RosterDevice, self string) []engine.RosterPeer {
+	seen := map[string]bool{}
+	var peers []engine.RosterPeer
 	for _, d := range devices {
-		if d.Dev == self {
+		if d.Dev == self || seen[d.Dev] {
 			continue
 		}
-		name := d.Dev
+		seen[d.Dev] = true
+		name, platform := d.Dev, ""
 		if d.Enc != nil {
 			if pt, err := cipher.Open(d.Enc.IV, d.Enc.Ct); err == nil {
 				var p struct {
-					Name string `json:"name"`
+					Name     string `json:"name"`
+					Platform string `json:"platform"`
 				}
 				if json.Unmarshal(pt, &p) == nil && p.Name != "" {
 					name = p.Name
+					platform = p.Platform
 				}
 			}
 		}
-		others = append(others, cand{d.Dev, name})
+		peers = append(peers, engine.RosterPeer{Dev: d.Dev, Name: name, Platform: platform})
 	}
-	if len(others) == 0 {
-		return ""
-	}
-	if want == "" {
-		return others[0].dev
-	}
-	for _, c := range others {
-		if c.dev == want || strings.EqualFold(c.name, want) {
-			return c.dev
+	return peers
+}
+
+// pickerTool picks a native dialog tool: kdialog on KDE, else zenity.
+func pickerTool() string {
+	if strings.Contains(strings.ToUpper(os.Getenv("XDG_CURRENT_DESKTOP")), "KDE") {
+		if _, err := exec.LookPath("kdialog"); err == nil {
+			return "kdialog"
 		}
+	}
+	if _, err := exec.LookPath("zenity"); err == nil {
+		return "zenity"
+	}
+	if _, err := exec.LookPath("kdialog"); err == nil {
+		return "kdialog"
 	}
 	return ""
 }
+
+// pickFile shows a native file chooser; returns (path, ok).
+func pickFile() (string, bool) {
+	switch pickerTool() {
+	case "kdialog":
+		out, err := exec.Command("kdialog", "--getopenfilename", homeDir()).Output()
+		p := strings.TrimSpace(string(out))
+		return p, err == nil && p != ""
+	case "zenity":
+		out, err := exec.Command("zenity", "--file-selection", "--title=Send a file").Output()
+		p := strings.TrimSpace(string(out))
+		return p, err == nil && p != ""
+	}
+	return "", false
+}
+
+// pickDevice returns a peer dev id: the only peer, or a chooser when there are several.
+func pickDevice(peers []engine.RosterPeer) (string, bool) {
+	switch len(peers) {
+	case 0:
+		notify("bgnconnect", "No connected device to send to")
+		return "", false
+	case 1:
+		return peers[0].Dev, true
+	}
+	label := func(p engine.RosterPeer) string {
+		if p.Platform != "" {
+			return p.Name + " · " + p.Platform
+		}
+		return p.Name
+	}
+	switch pickerTool() {
+	case "kdialog":
+		args := []string{"--menu", "Send to which device?"}
+		for _, p := range peers {
+			args = append(args, p.Dev, label(p))
+		}
+		out, err := exec.Command("kdialog", args...).Output()
+		d := strings.TrimSpace(string(out))
+		return d, err == nil && d != ""
+	case "zenity":
+		args := []string{"--list", "--title=Send to", "--text=Choose a device", "--column=id", "--column=Device", "--hide-column=1", "--print-column=1"}
+		for _, p := range peers {
+			args = append(args, p.Dev, label(p))
+		}
+		out, err := exec.Command("zenity", args...).Output()
+		d := strings.TrimSpace(string(out))
+		return d, err == nil && d != ""
+	}
+	return peers[0].Dev, true
+}
+
+func homeDir() string { h, _ := os.UserHomeDir(); return h }
+
+func notify(title, body string) { _ = exec.Command("notify-send", "-a", "bgnconnect", title, body).Start() }
 
 // downloadsDir returns (creating it) the user's Downloads dir (XDG, ~/Downloads fallback).
 func downloadsDir() string {

@@ -15,8 +15,10 @@ bgnconnect does two things between your phone and computer — in real time, end
 
 - 🔄 **Clipboard sync** — copy a link, an OTP, a paragraph, or an image on one device and it's instantly
   ready to paste on the other.
-- 📂 **Direct file transfer** — send any file or photo **straight device-to-device** (full LAN speed);
-  the bytes go peer-to-peer and never pass through a server.
+- 📂 **Direct file transfer — on any network.** Send any file or photo **straight device-to-device**,
+  whether the two are on the same Wi-Fi *or on completely different networks* (phone on mobile data,
+  laptop across town). The bytes go peer-to-peer — full speed on a LAN, hole-punched directly over the
+  internet otherwise — and never pass through a server.
 
 The relay that connects your devices is **one you host yourself**.
 
@@ -27,9 +29,11 @@ The relay that connects your devices is **one you host yourself**.
 
 - 🔄 **Clipboard sync — text *and* images.** Copy here, paste there, automatically (a screenshot on
   your phone is ready to paste on your desktop).
-- 📂 **Direct P2P file transfer.** Files stream **device-to-device over WebRTC** — full LAN speed, or
-  hole-punched across networks — and the bytes **never touch the relay**. Send from the Android
-  **Share sheet** (or a device's send button), or **right-click → "Send with bgnconnect"** on Linux.
+- 📂 **Direct P2P file transfer — works across any network.** Files stream **device-to-device over
+  WebRTC**: directly even when the two devices are on **different networks** (NAT hole-punched via STUN,
+  no port-forwarding), and at full speed when they share a LAN. The bytes **never touch the relay**.
+  Send from the Android **Share sheet** (or a device's send button), or **right-click → "Send with
+  bgnconnect"** on Linux.
 - 🔒 **End-to-end encrypted** — AES-256-GCM with a key derived from a secret only your devices know.
 - 🕵️ **Zero-knowledge relay** — the server only sees an opaque room id; it can't read your clipboard,
   filenames, or device names, and file bytes never reach it.
@@ -58,9 +62,10 @@ Android (Kotlin / Shizuku)                                   Linux (Go / wl-clip
         │                                                              │
         │── clipboard (tiny E2E frames) ─►  your relay  ◄─ clipboard ──│
         │                                 room = hash(secret)          │
-        └────────────  files: direct P2P (WebRTC DataChannel)  ────────┘
-   Clipboard frames are AES-256-GCM end-to-end; files stream straight between
-   the devices (LAN-direct or hole-punched) and never go through the relay.
+        └──────────  files: direct P2P (WebRTC, any network)  ────────┘
+   Clipboard frames are AES-256-GCM end-to-end. Files stream straight between the two
+   devices on any network — LAN-direct, or hole-punched over the internet via STUN —
+   and never go through the relay.
 ```
 
 A **secret** (32 random bytes) defines a sync network. Its hash becomes the `roomId` the relay routes

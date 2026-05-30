@@ -225,29 +225,51 @@ func (s *Session) run() error {
 	})
 	s.manager.logger.Printf("webcam[%s]: request sent (%dx%d@%d, camera=%s, codec_pref=%s, target=%s, hwaccel=%s)",
 		s.id, s.opts.Width, s.opts.Height, s.opts.FPS, s.opts.Camera, s.opts.Codec, s.opts.Target, s.manager.HWAccel())
-	// Offer timeout — if the phone never replies (service killed, stale state,
-	// app closed), abort so the keepalive can resume and the browser doesn't
-	// show a stuck black feed.
-	offerTimeout := time.NewTimer(8 * time.Second)
-	defer offerTimeout.Stop()
-	// 2. Block until peer answers (and starts streaming), peer stops, ctx
-	// cancels, or the offer times out.
-	select {
-	case <-s.ctx.Done():
-		s.stop("ctx-cancel")
-	case <-offerTimeout.C:
-		s.mu.Lock()
-		gotOffer := s.pc != nil
-		s.mu.Unlock()
-		if !gotOffer {
-			s.manager.logger.Printf("webcam[%s]: timed out waiting for phone offer", s.id)
-			s.stop("no-response")
-		} else {
-			<-s.done
+	// Phones can briefly miss a single request (backgrounded, doze, network burp,
+	// WS suspended). Retry every 2s up to 4 times — one usually wins, and the
+	// Android supersede handler ignores duplicates safely (same session id).
+	retryTicker := time.NewTicker(2 * time.Second)
+	defer retryTicker.Stop()
+	const maxRetries = 4
+	retries := 0
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.stop("ctx-cancel")
+			return nil
+		case <-retryTicker.C:
+			s.mu.Lock()
+			gotOffer := s.pc != nil
+			s.mu.Unlock()
+			if gotOffer {
+				retryTicker.Stop()
+				select {
+				case <-s.ctx.Done():
+					s.stop("ctx-cancel")
+				case <-s.done:
+				}
+				return nil
+			}
+			if retries >= maxRetries {
+				s.manager.logger.Printf("webcam[%s]: phone unresponsive after %d attempts", s.id, retries+1)
+				s.stop("no-response")
+				return nil
+			}
+			retries++
+			s.manager.logger.Printf("webcam[%s]: retry %d/%d", s.id, retries, maxRetries)
+			s.emit(Signal{
+				Kind:      "webcam-request",
+				Width:     s.opts.Width,
+				Height:    s.opts.Height,
+				FPS:       s.opts.FPS,
+				Camera:    s.opts.Camera,
+				CodecPref: s.opts.Codec,
+			})
+		case <-s.done:
+			return nil
 		}
-	case <-s.done:
 	}
-	return nil
 }
 
 func (s *Session) handleSignal(fromDev string, sig Signal) {

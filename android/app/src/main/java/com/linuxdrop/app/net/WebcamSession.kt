@@ -48,7 +48,6 @@ class WebcamSession(
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
     private var surfaceHelper: SurfaceTextureHelper? = null
-    private val eglBase: EglBase = EglBase.create()
     private val pendingCandidates = mutableListOf<IceCandidate>()
     private var remoteSet = false
     @Volatile private var ended = false
@@ -56,6 +55,12 @@ class WebcamSession(
     companion object {
         private const val TAG = "linuxDropWebcam"
         @Volatile private var pcfInitialized = false
+        // EglBase is process-scoped: WebRTC's native engine threads live as
+        // long as the process. We create one and reuse it across sessions —
+        // disposing it per-session also tore down the OkHttp WebSocket
+        // receive dispatcher on at least one OPPO build, so the *next*
+        // session couldn't receive signals.
+        @Volatile private var sharedEglBase: EglBase? = null
 
         @Synchronized
         private fun ensurePcfInit(ctx: Context) {
@@ -64,6 +69,14 @@ class WebcamSession(
                 PeerConnectionFactory.InitializationOptions.builder(ctx).createInitializationOptions()
             )
             pcfInitialized = true
+        }
+
+        @Synchronized
+        private fun egl(): EglBase {
+            sharedEglBase?.let { return it }
+            val e = EglBase.create()
+            sharedEglBase = e
+            return e
         }
     }
 
@@ -121,8 +134,8 @@ class WebcamSession(
 
     private fun initPeerConnection() {
         val f = PeerConnectionFactory.builder()
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
+            .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl().eglBaseContext, true, true))
+            .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl().eglBaseContext))
             .createPeerConnectionFactory()
         factory = f
 
@@ -185,7 +198,7 @@ class WebcamSession(
             override fun onCameraClosed() {}
         }) ?: throw IllegalStateException("failed to create camera capturer for $deviceName")
 
-        surfaceHelper = SurfaceTextureHelper.create("WebcamCaptureThread", eglBase.eglBaseContext)
+        surfaceHelper = SurfaceTextureHelper.create("WebcamCaptureThread", egl().eglBaseContext)
         videoSource = f.createVideoSource(false)
         capturer!!.initialize(surfaceHelper, context, videoSource!!.capturerObserver)
         capturer!!.startCapture(w, h, fps)
@@ -272,16 +285,27 @@ class WebcamSession(
     private fun cleanupAndNotify(reason: String) {
         if (ended) return
         ended = true
-        try { capturer?.stopCapture() } catch (_: Throwable) {}
-        capturer?.dispose()
-        videoSource?.dispose()
-        videoTrack?.dispose()
-        surfaceHelper?.dispose()
-        pc?.close()
-        pc = null
-        factory?.dispose()
-        factory = null
-        eglBase.release()
+        // Snapshot the native handles, then yield the caller IMMEDIATELY by
+        // invoking onEnded BEFORE the (potentially slow / hang-prone) disposes.
+        // Camera2/WebRTC disposal can take >1s and on some OPPO builds the
+        // call-stack actually hangs, blocking whichever thread was driving the
+        // session and preventing the next webcam-request from being processed.
+        // Disposing in a background thread protects the signal pipeline.
+        val capturerSnap = capturer
+        val videoSourceSnap = videoSource
+        val videoTrackSnap = videoTrack
+        val surfaceHelperSnap = surfaceHelper
+        val pcSnap = pc
+        capturer = null; videoSource = null; videoTrack = null
+        surfaceHelper = null; pc = null; factory = null
         onEnded(reason)
+        Thread({
+            runCatching { capturerSnap?.stopCapture() }
+            runCatching { capturerSnap?.dispose() }
+            runCatching { videoSourceSnap?.dispose() }
+            runCatching { videoTrackSnap?.dispose() }
+            runCatching { surfaceHelperSnap?.dispose() }
+            runCatching { pcSnap?.close() }
+        }, "webcam-dispose").start()
     }
 }

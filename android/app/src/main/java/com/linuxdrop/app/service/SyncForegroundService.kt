@@ -44,6 +44,12 @@ class SyncForegroundService : Service() {
 
     // Blob upload/download is network I/O — keep it off the binder/callback threads.
     private val io = Executors.newSingleThreadExecutor()
+    // Webcam routing gets its OWN single-thread executor so a long-running
+    // session teardown (camera dispose can take >1s) doesn't block file-IO
+    // tasks queued behind it AND vice versa. Using newSingleThreadExecutor
+    // also guarantees handleRequest/handleSignal calls are serialized — no
+    // concurrent fiddling with the WebcamSession state.
+    private val webcamIo = Executors.newSingleThreadExecutor()
 
     private val lock = Any()
     private var lastHash: String? = null
@@ -140,12 +146,28 @@ class SyncForegroundService : Service() {
         val payload = try {
             crypto.open(iv, ct)
         } catch (e: Exception) {
-            Log.w(TAG, "signal decrypt failed")
+            Log.w(TAG, "signal decrypt failed from $fromDev")
             return
         }
-        val kind = runCatching { JSONObject(String(payload, Charsets.UTF_8)).optString("kind") }.getOrDefault("")
+        val text = String(payload, Charsets.UTF_8)
+        val kind = runCatching { JSONObject(text).optString("kind") }.getOrDefault("")
+        Log.i(TAG, "signal ← $fromDev kind=$kind")
         if (kind.startsWith("webcam-")) {
-            routeWebcamSignal(fromDev, String(payload, Charsets.UTF_8))
+            // CRITICAL: route on a dedicated executor. Webcam cleanup (camera
+            // + WebRTC dispose) can take seconds and we MUST NOT block the
+            // OkHttp WebSocket dispatcher — if we do, subsequent signals queue
+            // behind us and the next session never starts. Using webcamIo
+            // (not io) so an in-flight file upload doesn't starve us either.
+            Log.i(TAG, "submitting $kind to webcamIo (active=${webcam != null})")
+            webcamIo.execute {
+                Log.i(TAG, "webcamIo START $kind")
+                try {
+                    routeWebcamSignal(fromDev, text)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "routeWebcamSignal CRASH: ${t.message}", t)
+                }
+                Log.i(TAG, "webcamIo END $kind")
+            }
             return
         }
         p2p?.onSignal(fromDev, payload)
@@ -155,6 +177,7 @@ class SyncForegroundService : Service() {
         val payload = try { JSONObject(jsonText) } catch (e: Exception) { return }
         when (payload.optString("kind")) {
             "webcam-request" -> {
+                Log.i(TAG, "webcam-request from $fromDev (session=${payload.optString("session")})")
                 // Always supersede any prior session — if the user clicks tray "Start"
                 // again, they want a fresh stream, not "in-use". Old session might be
                 // stuck because cleanup didn't fire (e.g., Linux side dropped WebRTC
@@ -230,6 +253,7 @@ class SyncForegroundService : Service() {
         runCatching { shizuku.unbind() }
         runCatching { p2p?.close() }
         runCatching { io.shutdownNow() }
+        runCatching { webcamIo.shutdownNow() }
         SyncStatus.setRunning(false)
         super.onDestroy()
     }

@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -235,8 +236,10 @@ func cmdRun(logger *log.Logger, args []string) {
 
 	// Webcam session lifecycle state (so the tray Stop can cancel the running session).
 	var (
-		webcamCancel context.CancelFunc
-		webcamMu     sync.Mutex
+		webcamCancel    context.CancelFunc
+		webcamMu        sync.Mutex
+		startWebcamShim func(camera, resolution string)
+		stopWebcamShim  func()
 	)
 	startWebcam := func(camera, resolution string) {
 		w, h := 1280, 720
@@ -293,6 +296,14 @@ func cmdRun(logger *log.Logger, args []string) {
 			c()
 		}
 	}
+	_ = startWebcamShim
+	_ = stopWebcamShim
+
+	// IPC: a unix socket lets `linuxdropd webcam start/stop` drive the
+	// already-running daemon (no separate WS conn, no fighting the daemon for
+	// the same dev id, no relay confusion). Used by automated tests AND by
+	// power users who want to script it.
+	go listenWebcamIPC(ctx, logger, startWebcam, stopWebcam)
 
 	go func() {
 		if err := eng.Run(ctx); err != nil && ctx.Err() == nil {
@@ -630,6 +641,73 @@ func downloadsDir() string {
 	return dir
 }
 
+// webcamSockPath is the Unix domain socket the running daemon listens on for
+// `linuxdropd webcam start|stop` commands. It lives under XDG_RUNTIME_DIR so
+// it's per-user and gets cleaned up at logout.
+func webcamSockPath() string {
+	d := os.Getenv("XDG_RUNTIME_DIR")
+	if d == "" {
+		d = "/tmp"
+	}
+	return d + "/linuxdrop-webcam.sock"
+}
+
+// listenWebcamIPC accepts simple text commands on the unix socket:
+//
+//	start [camera] [resolution]   → invokes startWebcam("back"|"front", "720p"|"1080p")
+//	stop                          → invokes stopWebcam()
+//
+// Each connection sends one command line + reads a single "ok"/"err" reply.
+func listenWebcamIPC(ctx context.Context, logger *log.Logger, start func(string, string), stop func()) {
+	path := webcamSockPath()
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		logger.Printf("webcam ipc: listen %s: %v", path, err)
+		return
+	}
+	logger.Printf("webcam ipc: listening on %s", path)
+	go func() { <-ctx.Done(); ln.Close(); _ = os.Remove(path) }()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+			buf := make([]byte, 256)
+			n, err := c.Read(buf)
+			if err != nil || n == 0 {
+				return
+			}
+			parts := strings.Fields(string(buf[:n]))
+			if len(parts) == 0 {
+				_, _ = c.Write([]byte("err empty\n"))
+				return
+			}
+			switch parts[0] {
+			case "start":
+				camera := "back"
+				resolution := "720p"
+				if len(parts) >= 2 {
+					camera = parts[1]
+				}
+				if len(parts) >= 3 {
+					resolution = parts[2]
+				}
+				start(camera, resolution)
+				_, _ = c.Write([]byte("ok\n"))
+			case "stop":
+				stop()
+				_, _ = c.Write([]byte("ok\n"))
+			default:
+				_, _ = c.Write([]byte("err unknown cmd\n"))
+			}
+		}(conn)
+	}
+}
+
 // runWebcamKeepalive writes a single black frame to /dev/video20 at low rate
 // (~5 fps) while no real session owns the device. With v4l2loopback's
 // exclusive_caps=1, the device only advertises CAPTURE caps once a producer
@@ -665,11 +743,11 @@ func runWebcamKeepalive(ctx context.Context, mgr *webcam.Manager, devPath string
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if mgr.Streaming() {
-				// Real frames are flowing; release our writer so we don't fight
-				// the producer for buffer slots. (We don't yield during the
-				// signaling phase — that would briefly drop CAPTURE caps and
-				// the browser would lose the device from its picker.)
+			if mgr.Active() {
+				// A session is starting / running — release the device NOW so
+				// the real session can VIDIOC_S_FMT and write its own frames.
+				// (v4l2loopback only honours one producer's format ioctl at a
+				// time, so two producers fight and the session's Open fails.)
 				closeWriter()
 				continue
 			}
@@ -692,7 +770,7 @@ func runWebcamKeepalive(ctx context.Context, mgr *webcam.Manager, devPath string
 // because that would spawn a second WS connection and disrupt the daemon.
 func cmdWebcam(logger *log.Logger, args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: linuxdropd webcam <install|status>")
+		fmt.Fprintln(os.Stderr, "usage: linuxdropd webcam <install|status|start|stop> [opts]")
 		os.Exit(2)
 	}
 	switch args[0] {
@@ -700,10 +778,49 @@ func cmdWebcam(logger *log.Logger, args []string) {
 		cmdWebcamInstall(logger)
 	case "status":
 		cmdWebcamStatus()
+	case "start":
+		cmdWebcamStart(logger, args[1:])
+	case "stop":
+		cmdWebcamStop(logger)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown webcam subcommand: %s\nuse: install | status\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown webcam subcommand: %s\nuse: install | status | start [back|front] [720p|1080p] | stop\n", args[0])
 		os.Exit(2)
 	}
+}
+
+// cmdWebcamStart talks to the running daemon over the IPC socket. Equivalent
+// to clicking tray ▸ Use phone camera ▸ Start. Defaults: back camera @ 720p.
+func cmdWebcamStart(logger *log.Logger, args []string) {
+	camera := "back"
+	resolution := "720p"
+	if len(args) >= 1 {
+		camera = args[0]
+	}
+	if len(args) >= 2 {
+		resolution = args[1]
+	}
+	ipcSend(logger, fmt.Sprintf("start %s %s", camera, resolution))
+}
+
+// cmdWebcamStop talks to the running daemon's IPC and stops the active session.
+func cmdWebcamStop(logger *log.Logger) {
+	ipcSend(logger, "stop")
+}
+
+func ipcSend(logger *log.Logger, cmd string) {
+	path := webcamSockPath()
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		logger.Fatalf("daemon not running (socket %s missing); start the linuxdrop service first", path)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn.Write([]byte(cmd + "\n")); err != nil {
+		logger.Fatalf("ipc write: %v", err)
+	}
+	buf := make([]byte, 64)
+	n, _ := conn.Read(buf)
+	fmt.Print(string(buf[:n]))
 }
 
 // cmdWebcamInstall provisions /dev/video20 persistently across reboots by writing

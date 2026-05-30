@@ -52,7 +52,7 @@ class WsClient(
     }
 
     private val client = OkHttpClient.Builder()
-        .pingInterval(180, TimeUnit.SECONDS) // keepalive under the relay's 240s idle timeout
+        .pingInterval(20, TimeUnit.SECONDS) // aggressive — detect zombie sockets within 20s
         .retryOnConnectionFailure(true)
         .build()
 

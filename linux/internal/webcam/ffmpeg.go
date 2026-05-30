@@ -49,14 +49,26 @@ func ffmpegArgs(hwaccel, codec string, w, h int) []string {
 			"-hwaccel_output_format", "yuv420p",
 		)
 	case "qsv":
-		args = append(args, "-hwaccel", "qsv", "-hwaccel_output_format", "yuv420p")
+		args = append(args,
+			"-hwaccel", "qsv",
+			"-hwaccel_output_format", "yuv420p",
+		)
 	case "sw", "":
 		// no -hwaccel flag
 	}
 	// Input: raw Annex-B NALU stream of the given codec
 	args = append(args, "-f", codec, "-i", "pipe:0")
-	// Output: raw YUV420 at the input size
-	args = append(args, "-pix_fmt", "yuv420p", "-f", "rawvideo", "pipe:1")
+	// Output: enforce planar I420 (YU12) in CPU memory. The `format=yuv420p`
+	// filter is cheap and idempotent — it does nothing when the source is
+	// already I420 (the common case after -hwaccel_output_format yuv420p)
+	// and converts when it isn't. Without this safety net, VAAPI sometimes
+	// returns NV12 (semi-planar interleaved UV); writing those bytes to a
+	// YU12 (planar) v4l2loopback device swaps U/V → wrong colours.
+	args = append(args,
+		"-vf", "format=yuv420p",
+		"-pix_fmt", "yuv420p",
+		"-f", "rawvideo", "pipe:1",
+	)
 	return args
 }
 

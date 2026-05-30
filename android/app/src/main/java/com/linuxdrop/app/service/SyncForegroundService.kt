@@ -19,6 +19,7 @@ import android.net.Uri
 import com.linuxdrop.app.crypto.LinuxDropCrypto
 import com.linuxdrop.app.net.BlobClient
 import com.linuxdrop.app.net.P2pManager
+import com.linuxdrop.app.net.WebcamSession
 import com.linuxdrop.app.net.WsClient
 import com.linuxdrop.app.shizuku.ShizukuClipboard
 import org.json.JSONObject
@@ -37,6 +38,7 @@ class SyncForegroundService : Service() {
     private lateinit var shizuku: ShizukuClipboard
     private lateinit var blob: BlobClient
     private var p2p: P2pManager? = null
+    private var webcam: WebcamSession? = null
     private lateinit var dev: String
     private lateinit var room: String
 
@@ -126,7 +128,7 @@ class SyncForegroundService : Service() {
         return START_STICKY
     }
 
-    /** Inbound P2P signaling: decrypt and hand to the WebRTC manager. */
+    /** Inbound signaling: decrypt and route to either the file P2P manager or the webcam session. */
     private fun onRemoteSignal(fromDev: String, iv: String, ct: String) {
         val payload = try {
             crypto.open(iv, ct)
@@ -134,7 +136,75 @@ class SyncForegroundService : Service() {
             Log.w(TAG, "signal decrypt failed")
             return
         }
+        val kind = runCatching { JSONObject(String(payload, Charsets.UTF_8)).optString("kind") }.getOrDefault("")
+        if (kind.startsWith("webcam-")) {
+            routeWebcamSignal(fromDev, String(payload, Charsets.UTF_8))
+            return
+        }
         p2p?.onSignal(fromDev, payload)
+    }
+
+    private fun routeWebcamSignal(fromDev: String, jsonText: String) {
+        val payload = try { JSONObject(jsonText) } catch (e: Exception) { return }
+        when (payload.optString("kind")) {
+            "webcam-request" -> {
+                if (webcam != null) {
+                    Log.w(TAG, "webcam-request while already streaming; rejecting")
+                    sendDirectedSignal(fromDev, JSONObject().apply {
+                        put("kind", "webcam-stop")
+                        put("session", payload.optString("session"))
+                        put("reason", "in-use")
+                    }.toString().toByteArray(Charsets.UTF_8))
+                    return
+                }
+                if (!hasCameraPermission()) {
+                    sendDirectedSignal(fromDev, JSONObject().apply {
+                        put("kind", "webcam-stop")
+                        put("session", payload.optString("session"))
+                        put("reason", "no-permission")
+                    }.toString().toByteArray(Charsets.UTF_8))
+                    return
+                }
+                webcam = WebcamSession(
+                    context = this,
+                    signalSink = { to, msg ->
+                        sendDirectedSignal(to, msg.toString().toByteArray(Charsets.UTF_8))
+                    },
+                    onEnded = { reason ->
+                        Log.i(TAG, "webcam session ended: $reason")
+                        webcam = null
+                        notifyWebcam(active = false, peer = null)
+                    },
+                )
+                webcam!!.handleRequest(
+                    fromDev,
+                    payload.optString("session"),
+                    payload.optInt("w", 1280),
+                    payload.optInt("h", 720),
+                    payload.optInt("fps", 30),
+                    payload.optString("camera", "back"),
+                    payload.optString("codec_pref", "h264"),
+                )
+                notifyWebcam(active = true, peer = fromDev)
+            }
+            else -> webcam?.handleSignal(payload)
+        }
+    }
+
+    private fun sendDirectedSignal(toDev: String, payload: ByteArray) {
+        val (iv, ct) = crypto.seal(payload)
+        ws.sendSignal(toDev, iv, ct, randomId())
+    }
+
+    private fun hasCameraPermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun notifyWebcam(active: Boolean, peer: String?) {
+        val title = if (active) "LinuxDrop · streaming as webcam" else "LinuxDrop"
+        val text = if (active) "Connected to ${peer ?: "Linux"} · tap to stop" else "Clipboard sync · ready"
+        startForegroundNotification(text, title = title)
     }
 
     private fun notifyFile(text: String) {
@@ -151,6 +221,7 @@ class SyncForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { webcam?.stop("service-stop") }
         runCatching { ws.stop() }
         runCatching { shizuku.unbind() }
         runCatching { p2p?.close() }
@@ -293,19 +364,25 @@ class SyncForegroundService : Service() {
         SyncStatus.setDevices(devices)
     }
 
-    private fun startForegroundNotification(status: String) {
+    private fun startForegroundNotification(status: String, title: String = "LinuxDrop") {
         val pi = android.app.PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             android.app.PendingIntent.FLAG_IMMUTABLE,
         )
+        val contentText = if (status.contains(" ")) status else "Clipboard sync — $status"
         val n: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("LinuxDrop")
-            .setContentText("Clipboard sync — $status")
+            .setContentTitle(title)
+            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_sync)
             .setOngoing(true)
             .setContentIntent(pi)
             .build()
-        val type = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
+        // Declare camera type while a webcam session is active so background camera access is allowed.
+        val type = if (Build.VERSION.SDK_INT >= 30) {
+            var t = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (webcam != null) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            t
+        } else 0
         ServiceCompat.startForeground(this, NOTIF_ID, n, type)
     }
 

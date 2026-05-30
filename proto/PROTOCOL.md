@@ -150,3 +150,41 @@ GET /ice                       → { "iceServers": [ {urls:"stun:…"}, {urls:"t
   2. binary chunks (~16 KiB, with backpressure)
   3. `{"t":"done"}` → receiver verifies size + SHA-256, saves to Downloads, notifies. `{"t":"err"}` aborts.
 - Receiving is **auto-accept + notify** (devices are already paired by the shared secret). No resume in v1.
+
+## §8. Webcam signaling (v0.4+)
+
+The phone exposes its camera as a virtual webcam on Linux (`/dev/video20` via `v4l2loopback`). Video
+runs over a **separate** WebRTC PeerConnection from the file-transfer path; it shares the same
+E2E-sealed `signal` envelope on the relay (no relay change). The Linux side initiates, the phone
+auto-accepts after a one-time CAMERA permission grant — zero per-session interaction.
+
+`session` is an 8-byte hex string the initiator mints; it lets a webcam session run concurrently with
+a file transfer in the same room without crossing wires.
+
+```json
+// Linux → phone (initiate)
+{"kind":"webcam-request","session":"a1b2c3d4e5f6a7b8","w":1280,"h":720,"fps":30,
+ "camera":"back","codec_pref":"h264"}
+
+// Phone → Linux (SDP offer with one sendonly video transceiver)
+{"kind":"webcam-offer","session":"a1b2c3d4e5f6a7b8","sdp":"v=0\r\n..."}
+
+// Linux → phone (SDP answer)
+{"kind":"webcam-answer","session":"a1b2c3d4e5f6a7b8","sdp":"v=0\r\n..."}
+
+// Either side (trickle ICE — candidates arriving before remote SDP are queued, flushed on remote-set)
+{"kind":"webcam-candidate","session":"a1b2c3d4e5f6a7b8",
+ "candidate":"candidate:842163049 1 udp 1677729535 ...",
+ "sdpMid":"0","sdpMLineIndex":0}
+
+// Either side (teardown)
+{"kind":"webcam-stop","session":"a1b2c3d4e5f6a7b8","reason":"user"}
+```
+
+- **Codec:** `codec_pref` is advisory ("h264" or "hevc"). The SDP answer is authoritative — the picker
+  takes the strongest mutually-supported codec; H.264 is the universal floor, HEVC is opportunistic.
+- **Errors:** the phone returns `webcam-stop` with `reason ∈ {"no-permission","no-camera","no-encoder","in-use"}`
+  instead of an offer. The Linux side surfaces the reason via `notify-send`.
+- **Teardown grace:** 10 s after WebRTC reports `disconnected`, both sides emit/honor `webcam-stop`.
+- **No data on the relay:** the video bytes flow peer-to-peer (LAN-direct or hole-punched); the relay
+  only forwards the small, sealed signaling frames.

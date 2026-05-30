@@ -218,6 +218,25 @@ class WebcamSession(
         } catch (t: Throwable) {
             Log.w(TAG, "setCodecPreferences", t)
         }
+        // Low-latency encoder tuning. WebRTC's default encoder ramps bitrate up
+        // gradually over a few seconds (the "rate control startup" phase) and
+        // queues 1-2 GOPs while doing so → visible 1-2s lag on every motion at
+        // the start of a session. Pinning a high min/max bitrate skips the
+        // ramp-up; networkPriority HIGH tells GCC to prefer this stream.
+        try {
+            val sender = transceiver.sender
+            val params = sender.parameters
+            params.encodings?.forEach { e ->
+                e.maxBitrateBps = if (w * h > 1280 * 720) 6_000_000 else 3_500_000
+                e.minBitrateBps = if (w * h > 1280 * 720) 3_000_000 else 1_500_000
+                e.maxFramerate = fps
+                e.networkPriority = 3 // HIGH
+                e.bitratePriority = 4.0
+            }
+            sender.parameters = params
+        } catch (t: Throwable) {
+            Log.w(TAG, "setEncoderParams", t)
+        }
     }
 
     private fun createAndSendOffer() {

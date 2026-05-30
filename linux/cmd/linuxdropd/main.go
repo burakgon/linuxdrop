@@ -663,7 +663,10 @@ func cmdWebcamInstall(logger *log.Logger) {
 	if err := os.WriteFile(modConf, []byte("v4l2loopback\n"), 0o644); err != nil {
 		logger.Fatalf("write %s: %v", modConf, err)
 	}
-	opts := "options v4l2loopback exclusive_caps=1 video_nr=20 card_label=\"LinuxDrop Camera\"\n"
+	// exclusive_caps=0 → device announces BOTH input + output caps. Required for
+	// Cheese/Chrome/Zoom/OBS to list it in their webcam picker (they filter for
+	// VIDEO_CAPTURE; exclusive_caps=1 hides capture when no writer is active).
+	opts := "options v4l2loopback exclusive_caps=0 video_nr=20 card_label=\"LinuxDrop Camera\"\n"
 	if err := os.WriteFile(optConf, []byte(opts), 0o644); err != nil {
 		logger.Fatalf("write %s: %v", optConf, err)
 	}

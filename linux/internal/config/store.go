@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	keyringService = "LinuxDrop"
+	keyringService = "linuxdrop"
 	keyringUser    = "shared-secret"
 )
 

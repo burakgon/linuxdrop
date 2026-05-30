@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
     /** Pair via a linuxdrop:// link (QR alternative): am start -a VIEW -d "linuxdrop://pair?...". */
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "LinuxDrop") {
+        if (data.scheme == "linuxdrop") {
             val ok = vm.joinWith(data.toString())
             Toast.makeText(this, if (ok) "Joined the network ✓" else "Invalid link", Toast.LENGTH_SHORT).show()
         }

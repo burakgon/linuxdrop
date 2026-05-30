@@ -28,7 +28,7 @@ func Dir() (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	d := filepath.Join(base, "LinuxDrop")
+	d := filepath.Join(base, "linuxdrop")
 	return d, os.MkdirAll(d, 0o700)
 }
 

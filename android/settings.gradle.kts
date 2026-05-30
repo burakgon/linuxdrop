@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LinuxDrop"
+rootProject.name = "linuxdrop"
 include(":app")

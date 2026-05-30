@@ -666,7 +666,9 @@ func cmdWebcamInstall(logger *log.Logger) {
 	// exclusive_caps=0 → device announces BOTH input + output caps. Required for
 	// Cheese/Chrome/Zoom/OBS to list it in their webcam picker (they filter for
 	// VIDEO_CAPTURE; exclusive_caps=1 hides capture when no writer is active).
-	opts := "options v4l2loopback exclusive_caps=0 video_nr=20 card_label=\"LinuxDrop Camera\"\n"
+	// max_buffers=4 gives a slight read-side queue so reader app jitter doesn't
+	// drop the producer's frames immediately.
+	opts := "options v4l2loopback exclusive_caps=0 video_nr=20 card_label=\"LinuxDrop Camera\" max_buffers=4\n"
 	if err := os.WriteFile(optConf, []byte(opts), 0o644); err != nil {
 		logger.Fatalf("write %s: %v", optConf, err)
 	}
@@ -676,8 +678,23 @@ func cmdWebcamInstall(logger *log.Logger) {
 	if _, err := os.Stat("/dev/video20"); err != nil {
 		logger.Fatalf("/dev/video20 missing after modprobe: %v", err)
 	}
+	// Pre-set a default format so webcam apps that probe (Cheese/gstreamer/Chrome)
+	// see the device as ready BEFORE the first producer connects — without this,
+	// Cheese's "Camera" picker won't list it because the format query returns empty.
+	if out, err := exec.Command("v4l2-ctl", "-d", "/dev/video20",
+		"-v", "width=1280,height=720,pixelformat=YU12").CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: v4l2-ctl format set failed: %v\n%s\n", err, out)
+	}
+	// Persist the format on each boot via a tiny udev rule so we don't need a
+	// systemd unit just for this.
+	const udevRule = `/etc/udev/rules.d/99-linuxdrop-webcam.rules`
+	rule := `SUBSYSTEM=="video4linux", KERNEL=="video20", ACTION=="add", ` +
+		`RUN+="/usr/bin/v4l2-ctl -d /dev/video20 -v width=1280,height=720,pixelformat=YU12"` + "\n"
+	_ = os.WriteFile(udevRule, []byte(rule), 0o644)
+	_ = exec.Command("udevadm", "control", "--reload").Run()
+
 	fmt.Println("Installed: v4l2loopback at /dev/video20 (label \"LinuxDrop Camera\")")
-	fmt.Println("Persistent across reboots via", modConf, "+", optConf)
+	fmt.Println("Persistent across reboots via", modConf, "+", optConf, "+", udevRule)
 }
 
 // cmdWebcamStatus reports v4l2loopback + ffmpeg availability so users can see at

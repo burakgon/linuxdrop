@@ -17,6 +17,7 @@ bun test             # relay + catch-up + ping + peers + blob tests
 |--------|------|-------------|
 | GET | `/health` | `{ ok, uptime }` |
 | GET | `/version` | `{ version, protocol }` |
+| GET | `/ice` | ICE servers for the P2P file path (STUN, + TURN if configured) |
 | GET | `/ws?room=<roomId>&v=1` | WebSocket relay |
 | PUT | `/blob?room=<roomId>` | Upload an E2E-encrypted blob → `{ id }` |
 | GET | `/blob/<id>?room=<roomId>` | Download an E2E-encrypted blob |
@@ -45,7 +46,34 @@ docker compose up -d --build
 |----------|---------|-------------|
 | `PORT` | `3000` | Listen port |
 | `DB_PATH` | `/data/bgnconnect.db` | SQLite path (`:memory:` for tests) |
-| `BGN_DOMAIN` | `localhost` | Caddy public hostname (TLS) |
+| `BGN_DOMAIN` | `localhost` | Caddy public hostname (TLS); also coturn's realm |
+| `TURN_URL` | _(unset)_ | TURN URL advertised to clients, e.g. `turn:relay.yourdomain.com:3478` (comma-separated for several) |
+| `TURN_SECRET` | _(unset)_ | Shared `use-auth-secret` for time-limited TURN credentials — set the same value on the relay and coturn |
+
+## Cross-network file transfer (STUN / TURN)
+
+File bytes go **directly peer-to-peer** (WebRTC); `/ice` hands clients the ICE servers they
+use to connect. Public STUN handles direct/hole-punched connections across most networks at
+no cost — nothing flows through it.
+
+For the strictest NATs (symmetric NAT, some mobile carriers) where hole-punching fails, the
+compose **bundles a TURN relay (coturn)** behind an opt-in profile, so a plain `docker compose
+up` stays STUN-only and opens no extra ports:
+
+```bash
+export TURN_SECRET=$(openssl rand -hex 32)            # shared by the relay and coturn
+export TURN_URL=turn:relay.yourdomain.com:3478
+BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+```
+
+- The relay derives short-lived (12 h) HMAC-SHA1 credentials from `TURN_SECRET` and returns
+  them via `/ice`; coturn validates them with the matching `--static-auth-secret`. Clients pick
+  this up automatically — **no client-side change**.
+- Open **UDP 3478** (TURN) and the relay range **UDP 49160–49200** in your firewall.
+- On clouds with 1:1 NAT (GCP/AWS/Azure), also add `--external-ip=<public-ip>` to the coturn
+  `command` so it advertises the reachable address.
+- coturn runs with `network_mode: host`; only `turn:` (plain) is enabled — fine for the native
+  clients. Add TLS (`turns:`) only if you also need browser peers.
 
 ## Advanced: front with an existing reverse proxy
 

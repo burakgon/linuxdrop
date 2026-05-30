@@ -91,11 +91,27 @@ That's it — your relay is live at `wss://relay.yourdomain.com`. Use that URL w
 device; other devices receive it automatically from the pairing QR.
 
 - **No public domain?** Run it on a Tailscale/WireGuard network and use `ws://<private-ip>:3000`.
-- **Cross-network file transfer** works directly via STUN; for the strictest NATs you can point clients
-  at your own TURN server (`TURN_URL`/`TURN_SECRET`, see [`backend/README.md`](backend/README.md)).
+- **Cross-network transfer just works** over STUN hole-punching — no port-forwarding. For the strictest
+  NATs, flip on the bundled TURN relay (just below).
 - **Already running nginx?** See the advanced path in [`backend/README.md`](backend/README.md)
   (`docker-compose.prod.yml` + [`deploy/nginx-relay.conf.example`](backend/deploy/nginx-relay.conf.example)).
 - **Verify it:** `bun scripts/relay-check.ts wss://relay.yourdomain.com`.
+
+### Optional: TURN, for the strictest NATs
+
+Direct hole-punching (STUN) already carries file transfers across most networks. For the rare
+symmetric-NAT / locked-down mobile case, the compose **bundles a TURN relay (coturn)** — opt in with a
+profile, so a plain `docker compose up` stays STUN-only and opens no extra ports:
+
+```bash
+export TURN_SECRET=$(openssl rand -hex 32)            # shared by the relay and coturn
+export TURN_URL=turn:relay.yourdomain.com:3478
+BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+```
+
+Open UDP `3478` and `49160-49200` in your firewall (on clouds with 1:1 NAT — GCP/AWS/Azure — also add
+`--external-ip=<public-ip>` to the coturn command). Clients then fetch short-lived TURN credentials
+from `/ice` automatically — no client-side change needed.
 
 ## 📱 Client setup
 

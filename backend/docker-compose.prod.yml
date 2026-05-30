@@ -18,6 +18,9 @@ services:
     environment:
       PORT: "3000"
       DB_PATH: /data/bgnconnect.db
+      # Set both to advertise the bundled TURN relay to clients (see coturn below).
+      TURN_URL: ${TURN_URL:-}
+      TURN_SECRET: ${TURN_SECRET:-}
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

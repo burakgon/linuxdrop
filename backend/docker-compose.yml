@@ -9,6 +9,9 @@ services:
     environment:
       PORT: "3000"
       DB_PATH: /data/bgnconnect.db
+      # Set both to advertise a TURN relay to clients (see the coturn service below).
+      TURN_URL: ${TURN_URL:-}
+      TURN_SECRET: ${TURN_SECRET:-}
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -32,6 +35,35 @@ services:
       - caddy-config:/config
     depends_on:
       - bgnconnect
+
+  # Optional TURN relay (coturn) — the last-resort path for the strictest NATs
+  # (some mobile carriers / symmetric NAT) where direct hole-punching fails.
+  # Bundled but opt-in, so plain `docker compose up` stays STUN-only and opens no
+  # extra ports. Enable it:
+  #
+  #   export TURN_SECRET=$(openssl rand -hex 32)
+  #   export TURN_URL=turn:relay.yourdomain.com:3478
+  #   BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+  #
+  # Open UDP 3478 and UDP 49160-49200 in your firewall. On clouds with 1:1 NAT
+  # (GCP/AWS/Azure), also append `--external-ip=<your-public-ip>` to the command.
+  coturn:
+    image: coturn/coturn:4
+    restart: unless-stopped
+    profiles: ["turn"]
+    network_mode: host
+    command:
+      - -n
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:-}
+      - --realm=${BGN_DOMAIN:-localhost}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --log-file=stdout
 
 volumes:
   bgn-data:

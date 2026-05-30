@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +34,7 @@ import (
 	"linuxdrop/linux/internal/engine"
 	"linuxdrop/linux/internal/p2p"
 	"linuxdrop/linux/internal/tray"
+	"linuxdrop/linux/internal/webcam"
 	"linuxdrop/linux/internal/wire"
 	"linuxdrop/linux/internal/ws"
 )
@@ -53,8 +55,10 @@ func main() {
 			cmdSend(logger, args[1:])
 		case "run":
 			cmdRun(logger, args[1:])
+		case "webcam":
+			cmdWebcam(logger, args[1:])
 		default:
-			logger.Fatalf("unknown command %q (use: gen-secret | pair | qr | send | run)", args[0])
+			logger.Fatalf("unknown command %q (use: gen-secret | pair | qr | send | run | webcam)", args[0])
 		}
 		return
 	}
@@ -180,11 +184,107 @@ func cmdRun(logger *log.Logger, args []string) {
 	// the file bytes go straight peer-to-peer over WebRTC.
 	p2pMgr := p2p.NewManager(dev, relay, downloadsDir(), logger)
 	p2pMgr.SetSendSignal(eng.SendSignal)
-	eng.SetOnSignal(p2pMgr.OnSignal)
 	p2pMgr.SetOnReceived(func(path string) {
 		notify("LinuxDrop", "Received "+filepath.Base(path))
 		_ = exec.Command("xdg-open", filepath.Dir(path)).Start() // reveal the folder
 	})
+
+	// Webcam manager: drives the phone-as-webcam feature. Shares the same E2E
+	// signal pipe; we route signals by kind below.
+	webcamMgr := webcam.NewManager(webcam.Config{
+		Device: "/dev/video20",
+		ResolveTarget: func(name string) string {
+			for _, p := range eng.Peers() {
+				if p.Dev == name || p.Name == name {
+					return p.Dev
+				}
+			}
+			nameL := strings.ToLower(name)
+			for _, p := range eng.Peers() {
+				if strings.Contains(strings.ToLower(p.Name), nameL) {
+					return p.Dev
+				}
+			}
+			return name
+		},
+		Emit:   func(toDev string, payload []byte) error { eng.SendSignal(toDev, payload); return nil },
+		Logger: logger,
+	})
+
+	// Signal dispatcher: peek at JSON `kind` and route webcam-* to webcamMgr,
+	// everything else to p2pMgr (offer/answer/candidate for file transfer).
+	eng.SetOnSignal(func(fromDev string, payload []byte) {
+		var head struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal(payload, &head)
+		if strings.HasPrefix(head.Kind, "webcam-") {
+			webcamMgr.OnSignal(fromDev, payload)
+			return
+		}
+		p2pMgr.OnSignal(fromDev, payload)
+	})
+
+	// Webcam session lifecycle state (so the tray Stop can cancel the running session).
+	var (
+		webcamCancel context.CancelFunc
+		webcamMu     sync.Mutex
+	)
+	startWebcam := func(camera, resolution string) {
+		w, h := 1280, 720
+		if resolution == "1080p" {
+			w, h = 1920, 1080
+		}
+		var target string
+		for _, p := range eng.Peers() {
+			if p.Dev == dev {
+				continue
+			}
+			target = p.Dev
+			break
+		}
+		if target == "" {
+			notify("LinuxDrop", "No paired phone is online to start the webcam.")
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		webcamMu.Lock()
+		if webcamCancel != nil {
+			webcamMu.Unlock()
+			notify("LinuxDrop", "Webcam already streaming. Stop it first.")
+			cancel()
+			return
+		}
+		webcamCancel = cancel
+		webcamMu.Unlock()
+		if tr != nil {
+			tr.SetWebcamActive(true)
+		}
+		go func() {
+			err := webcamMgr.Start(ctx, webcam.StartOpts{
+				Target: target, Width: w, Height: h, FPS: 30,
+				Camera: camera, Codec: "h264",
+			})
+			webcamMu.Lock()
+			webcamCancel = nil
+			webcamMu.Unlock()
+			if tr != nil {
+				tr.SetWebcamActive(false)
+			}
+			if err != nil && !errors.Is(err, context.Canceled) {
+				notify("LinuxDrop", "Webcam: "+err.Error())
+			}
+		}()
+	}
+	stopWebcam := func() {
+		webcamMu.Lock()
+		c := webcamCancel
+		webcamMu.Unlock()
+		webcamMgr.Stop("user")
+		if c != nil {
+			c()
+		}
+	}
 
 	go func() {
 		if err := eng.Run(ctx); err != nil && ctx.Err() == nil {
@@ -213,6 +313,8 @@ func cmdRun(logger *log.Logger, args []string) {
 		},
 		OnShowQR:     func() { showPairingQR(logger, secret, relay) },
 		OnOpenFolder: func() { _ = exec.Command("xdg-open", downloadsDir()).Start() },
+		OnStartWebcam: func(camera, resolution string) { startWebcam(camera, resolution) },
+		OnStopWebcam:  func() { stopWebcam() },
 		OnSendFile: func() {
 			path, ok := pickFile()
 			if !ok {
@@ -519,3 +621,74 @@ func downloadsDir() string {
 	_ = os.MkdirAll(dir, 0o755)
 	return dir
 }
+
+// cmdWebcam dispatches `linuxdropd webcam <install|status>`. start/stop go
+// through the running daemon's tray menu; we don't ship a separate CLI driver
+// because that would spawn a second WS connection and disrupt the daemon.
+func cmdWebcam(logger *log.Logger, args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: linuxdropd webcam <install|status>")
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "install":
+		cmdWebcamInstall(logger)
+	case "status":
+		cmdWebcamStatus()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown webcam subcommand: %s\nuse: install | status\n", args[0])
+		os.Exit(2)
+	}
+}
+
+// cmdWebcamInstall provisions /dev/video20 persistently across reboots by writing
+// modules-load + modprobe config files and modprobe-ing v4l2loopback. Requires
+// root; re-execs via pkexec if not.
+func cmdWebcamInstall(logger *log.Logger) {
+	const modConf = "/etc/modules-load.d/linuxdrop-webcam.conf"
+	const optConf = "/etc/modprobe.d/linuxdrop-webcam.conf"
+	if os.Geteuid() != 0 {
+		self, err := os.Executable()
+		if err != nil {
+			logger.Fatalf("locating self for pkexec: %v", err)
+		}
+		fmt.Println("Webcam install needs root — invoking pkexec…")
+		cmd := exec.Command("pkexec", self, "webcam", "install")
+		cmd.Stdout, cmd.Stderr, cmd.Stdin = os.Stdout, os.Stderr, os.Stdin
+		if err := cmd.Run(); err != nil {
+			logger.Fatalf("webcam install (via pkexec): %v", err)
+		}
+		return
+	}
+	if err := os.WriteFile(modConf, []byte("v4l2loopback\n"), 0o644); err != nil {
+		logger.Fatalf("write %s: %v", modConf, err)
+	}
+	opts := "options v4l2loopback exclusive_caps=1 video_nr=20 card_label=\"LinuxDrop Camera\"\n"
+	if err := os.WriteFile(optConf, []byte(opts), 0o644); err != nil {
+		logger.Fatalf("write %s: %v", optConf, err)
+	}
+	if out, err := exec.Command("modprobe", "v4l2loopback").CombinedOutput(); err != nil {
+		logger.Fatalf("modprobe v4l2loopback: %v\n%s", err, out)
+	}
+	if _, err := os.Stat("/dev/video20"); err != nil {
+		logger.Fatalf("/dev/video20 missing after modprobe: %v", err)
+	}
+	fmt.Println("Installed: v4l2loopback at /dev/video20 (label \"LinuxDrop Camera\")")
+	fmt.Println("Persistent across reboots via", modConf, "+", optConf)
+}
+
+// cmdWebcamStatus reports v4l2loopback + ffmpeg availability so users can see at
+// a glance whether the feature is usable on this box.
+func cmdWebcamStatus() {
+	if _, err := os.Stat("/dev/video20"); err != nil {
+		fmt.Println("v4l2loopback: NOT INSTALLED (run: linuxdropd webcam install)")
+	} else {
+		fmt.Println("v4l2loopback: OK (/dev/video20)")
+	}
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		fmt.Println("ffmpeg:        NOT FOUND (install via your package manager)")
+	} else {
+		fmt.Println("ffmpeg:        OK")
+	}
+}
+

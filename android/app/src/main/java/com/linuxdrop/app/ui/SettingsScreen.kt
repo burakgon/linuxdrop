@@ -32,16 +32,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 
 @Composable
 fun SettingsScreen(
@@ -140,9 +146,13 @@ fun SettingsScreen(
                 Text("Shizuku: granted ✓", style = MaterialTheme.typography.bodyMedium)
             }
 
+            HorizontalDivider()
+
+            WebcamCard()
+
             Spacer(Modifier.width(1.dp))
             Text(
-                "LinuxDrop · version 0.3.0",
+                "LinuxDrop · version 0.4.0",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -159,5 +169,47 @@ fun SettingsScreen(
             },
             dismissButton = { TextButton(onClick = { confirmRegen = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/**
+ * Webcam settings card. One-time CAMERA permission grant + a short blurb about
+ * how the feature works. Per-session controls live on the Linux side (the
+ * desktop initiates; the phone streams seamlessly with zero per-session UI).
+ */
+@Composable
+private fun WebcamCard() {
+    val ctx = LocalContext.current
+    var granted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.CAMERA
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { result -> granted = result }
+    LaunchedEffect(Unit) {
+        granted = ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    Text("Webcam", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Use this phone as a webcam for your paired Linux machine. The desktop " +
+            "starts the stream — your phone streams over WebRTC and never wakes the screen. " +
+            "A small camera dot appears in the status bar while it's active.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (granted) {
+        Text("Camera permission: granted ✓", style = MaterialTheme.typography.bodyMedium)
+    } else {
+        OutlinedButton(
+            onClick = { launcher.launch(android.Manifest.permission.CAMERA) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Grant camera permission") }
     }
 }

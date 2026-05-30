@@ -34,6 +34,7 @@ import (
 	"linuxdrop/linux/internal/engine"
 	"linuxdrop/linux/internal/p2p"
 	"linuxdrop/linux/internal/tray"
+	"linuxdrop/linux/internal/v4l2"
 	"linuxdrop/linux/internal/webcam"
 	"linuxdrop/linux/internal/wire"
 	"linuxdrop/linux/internal/ws"
@@ -191,8 +192,9 @@ func cmdRun(logger *log.Logger, args []string) {
 
 	// Webcam manager: drives the phone-as-webcam feature. Shares the same E2E
 	// signal pipe; we route signals by kind below.
+	const webcamDevice = "/dev/video20"
 	webcamMgr := webcam.NewManager(webcam.Config{
-		Device: "/dev/video20",
+		Device: webcamDevice,
 		ResolveTarget: func(name string) string {
 			for _, p := range eng.Peers() {
 				if p.Dev == name || p.Name == name {
@@ -210,6 +212,12 @@ func cmdRun(logger *log.Logger, args []string) {
 		Emit:   func(toDev string, payload []byte) error { eng.SendSignal(toDev, payload); return nil },
 		Logger: logger,
 	})
+
+	// Keep-alive: while no real session is running, write a black frame to
+	// /dev/video20 every 200ms. This forces v4l2loopback's CAPTURE-side caps
+	// (with exclusive_caps=1) so Chromium-based browsers list the device in
+	// MediaDevices.enumerateDevices(). Without this, Chrome filters it out.
+	go runWebcamKeepalive(ctx, webcamMgr, webcamDevice, logger)
 
 	// Signal dispatcher: peek at JSON `kind` and route webcam-* to webcamMgr,
 	// everything else to p2pMgr (offer/answer/candidate for file transfer).
@@ -622,6 +630,60 @@ func downloadsDir() string {
 	return dir
 }
 
+// runWebcamKeepalive writes a single black frame to /dev/video20 at low rate
+// (~5 fps) while no real session owns the device. With v4l2loopback's
+// exclusive_caps=1, the device only advertises CAPTURE caps once a producer
+// has attached — without this loop, Chromium's MediaDevices.enumerateDevices
+// can't find the virtual camera and it never appears in the picker.
+// When a real webcam session is active, the keepalive yields the device.
+func runWebcamKeepalive(ctx context.Context, mgr *webcam.Manager, devPath string, logger *log.Logger) {
+	const (
+		width  = 1280
+		height = 720
+	)
+	// Black YU12 frame: Y plane zeros + UV planes 128 (neutral chroma).
+	yLen := width * height
+	uvLen := yLen / 2
+	frame := make([]byte, yLen+uvLen)
+	for i := yLen; i < len(frame); i++ {
+		frame[i] = 128
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	var writer *v4l2.Writer
+	closeWriter := func() {
+		if writer != nil {
+			_ = writer.Close()
+			writer = nil
+		}
+	}
+	defer closeWriter()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if mgr.Active() {
+				// Real session owns the device; release our writer if any.
+				closeWriter()
+				continue
+			}
+			if writer == nil {
+				w, err := v4l2.Open(devPath, width, height, 5)
+				if err != nil {
+					// /dev/video20 missing or busy — retry next tick.
+					continue
+				}
+				writer = w
+				logger.Printf("webcam keepalive: holding %s active for browser enumeration", devPath)
+			}
+			_ = writer.Write(frame)
+		}
+	}
+}
+
 // cmdWebcam dispatches `linuxdropd webcam <install|status>`. start/stop go
 // through the running daemon's tray menu; we don't ship a separate CLI driver
 // because that would spawn a second WS connection and disrupt the daemon.
@@ -663,12 +725,13 @@ func cmdWebcamInstall(logger *log.Logger) {
 	if err := os.WriteFile(modConf, []byte("v4l2loopback\n"), 0o644); err != nil {
 		logger.Fatalf("write %s: %v", modConf, err)
 	}
-	// exclusive_caps=0 → device announces BOTH input + output caps. Required for
-	// Cheese/Chrome/Zoom/OBS to list it in their webcam picker (they filter for
-	// VIDEO_CAPTURE; exclusive_caps=1 hides capture when no writer is active).
-	// max_buffers=4 gives a slight read-side queue so reader app jitter doesn't
-	// drop the producer's frames immediately.
-	opts := "options v4l2loopback exclusive_caps=0 video_nr=20 card_label=\"LinuxDrop Camera\" max_buffers=4\n"
+	// exclusive_caps=1 (OBS Virtual Camera style). Required: Chromium's
+	// v4l2_capture_delegate.cc REJECTS devices that advertise CAPTURE+OUTPUT
+	// simultaneously (which is what exclusive_caps=0 does). With =1 the node is
+	// OUTPUT-only when idle, then flips to CAPTURE-only as soon as a producer
+	// attaches. The daemon runs a low-rate keepalive writer (see runWebcamKeepalive)
+	// so the device is always in CAPTURE mode when Chrome enumerates.
+	opts := "options v4l2loopback exclusive_caps=1 video_nr=20 card_label=\"LinuxDrop Camera\" max_buffers=2\n"
 	if err := os.WriteFile(optConf, []byte(opts), 0o644); err != nil {
 		logger.Fatalf("write %s: %v", optConf, err)
 	}

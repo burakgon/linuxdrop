@@ -29,8 +29,8 @@ func probeHWAccel() string {
 }
 
 // ffmpegArgs builds the argv for an ffmpeg subprocess that decodes a NALU stream
-// from stdin and writes YUV420 raw video to stdout. The HW path keeps the format
-// in CPU memory (yuv420p output) so we can write it directly to v4l2loopback.
+// from stdin and writes YUV420 raw video to stdout (used by tests + the legacy
+// pipe path). The HW path keeps the format in CPU memory (yuv420p output).
 func ffmpegArgs(hwaccel, codec string, w, h int) []string {
 	// -loglevel: keep warnings; suppress info chatter.
 	// (-fflags +nobuffer was tested and breaks the H.264 parser on piped input;
@@ -99,6 +99,78 @@ func NewPipe(hwaccel, codec string, w, h int) (*Pipe, error) {
 	return p, err
 }
 
+// NewV4L2Writer starts ffmpeg as: stdin → decode (HW or SW) → write directly
+// to a v4l2loopback device. Letting ffmpeg own the v4l2 negotiation avoids
+// every plane-order / colorspace bug a hand-rolled writer can introduce —
+// ffmpeg consults the device's VIDIOC_ENUM_FMT and picks a compatible
+// pixel format. The returned Pipe has a working WriteNAL/Close; ReadFrame
+// returns 0 bytes (no stdout output).
+func NewV4L2Writer(hwaccel, codec string, w, h int, devPath string) (*Pipe, error) {
+	if codec != "h264" && codec != "hevc" {
+		return nil, fmt.Errorf("unsupported codec %q (want h264 or hevc)", codec)
+	}
+	p, err := startV4L2(hwaccel, codec, w, h, devPath)
+	if err != nil && hwaccel != "sw" {
+		log.Printf("webcam: HW accel %q failed (%v); falling back to SW", hwaccel, err)
+		return startV4L2("sw", codec, w, h, devPath)
+	}
+	return p, err
+}
+
+// ffmpegV4L2Args builds argv for: NALU stream on stdin → v4l2loopback output.
+func ffmpegV4L2Args(hwaccel, codec string, w, h int, devPath string) []string {
+	args := []string{"-loglevel", "warning"}
+	switch hwaccel {
+	case "vaapi":
+		args = append(args,
+			"-hwaccel", "vaapi",
+			"-hwaccel_device", "/dev/dri/renderD128",
+			"-hwaccel_output_format", "yuv420p",
+		)
+	case "cuda":
+		args = append(args, "-hwaccel", "cuda", "-hwaccel_output_format", "yuv420p")
+	case "qsv":
+		args = append(args, "-hwaccel", "qsv", "-hwaccel_output_format", "yuv420p")
+	}
+	args = append(args, "-f", codec, "-i", "pipe:0")
+	// v4l2loopback consumer. The Android back camera (when phone is held in
+	// portrait) sends 720x1280, so we transpose 90° CW + scale to the target
+	// landscape dimensions. format=yuv420p forces planar I420 (avoids the
+	// NV12-as-I420 plane-swap-tinted-output bug).
+	vf := fmt.Sprintf("transpose=1,scale=%d:%d,format=yuv420p", w, h)
+	args = append(args,
+		"-vf", vf,
+		"-s", fmt.Sprintf("%dx%d", w, h),
+		"-pix_fmt", "yuv420p",
+		"-f", "v4l2",
+		devPath,
+	)
+	return args
+}
+
+func startV4L2(hwaccel, codec string, w, h int, devPath string) (*Pipe, error) {
+	cmd := exec.Command("ffmpeg", ffmpegV4L2Args(hwaccel, codec, w, h, devPath)...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("ffmpeg stdin: %w", err)
+	}
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stderr // no output to read; just log
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("ffmpeg start: %w", err)
+	}
+	return &Pipe{
+		cmd:     cmd,
+		stdin:   stdin,
+		stdout:  nil, // unused in v4l2-out mode
+		w:       w,
+		h:       h,
+		frameSz: w * h * 3 / 2,
+		codec:   codec,
+		hwaccel: hwaccel,
+	}, nil
+}
+
 func startPipe(hwaccel, codec string, w, h int) (*Pipe, error) {
 	cmd := exec.Command("ffmpeg", ffmpegArgs(hwaccel, codec, w, h)...)
 	stdin, err := cmd.StdinPipe()
@@ -132,7 +204,11 @@ func (p *Pipe) WriteNAL(buf []byte) (int, error) { return p.stdin.Write(buf) }
 func (p *Pipe) CloseStdin() error { return p.stdin.Close() }
 
 // ReadFrame returns exactly one YUV420 frame. Returns io.EOF only when ffmpeg exits.
+// Returns io.EOF immediately when the pipe is in v4l2-out mode (stdout unused).
 func (p *Pipe) ReadFrame() ([]byte, error) {
+	if p.stdout == nil {
+		return nil, io.EOF
+	}
 	frame := make([]byte, p.frameSz)
 	if _, err := io.ReadFull(p.stdout, frame); err != nil {
 		return nil, err

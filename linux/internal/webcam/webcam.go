@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 	"sync"
@@ -394,51 +393,22 @@ func (s *Session) handleTrack(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) 
 	}
 	s.manager.logger.Printf("webcam[%s]: incoming track codec=%s", s.id, codecMime)
 
-	pipe, err := NewPipe(s.manager.cfg.HWAccel, codecLabel, s.opts.Width, s.opts.Height)
+	// Let ffmpeg own the v4l2 negotiation: NALUs in → decode (HW/SW) →
+	// write directly to /dev/video20 with format auto-negotiated against the
+	// loopback device. Avoids every plane-order / colorspace bug a hand-rolled
+	// writer can introduce (was producing NV12 bytes into a YU12-declared
+	// device → green-tinted output).
+	pipe, err := NewV4L2Writer(s.manager.cfg.HWAccel, codecLabel, s.opts.Width, s.opts.Height, s.manager.cfg.Device)
 	if err != nil {
-		s.manager.logger.Printf("webcam[%s]: NewPipe: %v", s.id, err)
+		s.manager.logger.Printf("webcam[%s]: NewV4L2Writer: %v", s.id, err)
 		s.stop("ffmpeg-failed")
 		return
 	}
 	s.pipe = pipe
 	defer pipe.Close()
-	s.manager.logger.Printf("webcam[%s]: ffmpeg up (hwaccel=%s)", s.id, pipe.HWAccel())
-
-	w, err := v4l2.Open(s.manager.cfg.Device, s.opts.Width, s.opts.Height, s.opts.FPS)
-	if err != nil {
-		s.manager.logger.Printf("webcam[%s]: v4l2.Open(%s): %v", s.id, s.manager.cfg.Device, err)
-		s.stop("v4l2-failed")
-		return
-	}
-	s.writer = w
-	defer w.Close()
 	s.streaming.Store(true)
 	defer s.streaming.Store(false)
-	s.manager.logger.Printf("webcam[%s]: streaming to %s", s.id, s.manager.cfg.Device)
-
-	// Reader goroutine: pull YUV from ffmpeg → write to v4l2.
-	readerDone := make(chan struct{})
-	go func() {
-		defer close(readerDone)
-		frames := 0
-		for {
-			frame, err := pipe.ReadFrame()
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					s.manager.logger.Printf("webcam[%s]: ReadFrame: %v", s.id, err)
-				}
-				return
-			}
-			if werr := w.Write(frame); werr != nil {
-				s.manager.logger.Printf("webcam[%s]: v4l2 Write: %v", s.id, werr)
-				return
-			}
-			frames++
-			if frames == 1 || frames%150 == 0 {
-				s.manager.logger.Printf("webcam[%s]: %d frames written", s.id, frames)
-			}
-		}
-	}()
+	s.manager.logger.Printf("webcam[%s]: ffmpeg→%s (hwaccel=%s)", s.id, s.manager.cfg.Device, pipe.HWAccel())
 
 	// Main loop: read RTP, depacketize, write to ffmpeg with Annex-B start codes.
 	startCode := []byte{0x00, 0x00, 0x00, 0x01}
@@ -460,7 +430,6 @@ func (s *Session) handleTrack(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) 
 		}
 	}
 	_ = pipe.CloseStdin()
-	<-readerDone
 }
 
 func (s *Session) stop(reason string) {

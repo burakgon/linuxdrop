@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"bgnconnect/linux/internal/crypto"
-	"bgnconnect/linux/internal/wire"
+	"linuxdrop/linux/internal/crypto"
+	"linuxdrop/linux/internal/wire"
 )
 
 // fakeClip mimics the OS clipboard, including the crucial hazard: a Copy()

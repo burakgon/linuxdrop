@@ -2,10 +2,10 @@
 # are instantiated/invoked reflectively or over AIDL/Shizuku:
 
 # Shizuku instantiates the UserService by name in the shell process.
--keep class com.bgnconnect.app.shizuku.ClipboardUserService { *; }
+-keep class com.linuxdrop.app.shizuku.ClipboardUserService { *; }
 
 # AIDL stubs and the bundled hidden listener.
--keep class com.bgnconnect.app.shizuku.** { *; }
+-keep class com.linuxdrop.app.shizuku.** { *; }
 -keep class android.content.IOnPrimaryClipChangedListener { *; }
 -keep class android.content.IOnPrimaryClipChangedListener$Stub { *; }
 

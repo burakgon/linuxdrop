@@ -29,7 +29,7 @@ import (
 const (
 	chunkSize    = 16 * 1024
 	maxBuffered  = 1 << 20
-	channelLabel = "bgn-file"
+	channelLabel = "linuxdrop-file"
 	sendTimeout  = 15 * time.Minute
 )
 
@@ -390,7 +390,7 @@ func (m *Manager) receive(fromDev string, dc *webrtc.DataChannel) {
 			switch probe["t"] {
 			case "head":
 				_ = json.Unmarshal(msg.Data, &h)
-				t, err := os.CreateTemp(m.downloadDir, ".bgn-*.part")
+				t, err := os.CreateTemp(m.downloadDir, ".linuxdrop-*.part")
 				if err != nil {
 					fail("cannot open temp file")
 					return

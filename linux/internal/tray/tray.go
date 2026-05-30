@@ -45,15 +45,15 @@ func (t *Tray) SetDevices(devices []string) {
 		return
 	}
 	if len(devices) == 0 {
-		systray.SetTooltip("bgnconnect — clipboard sync")
+		systray.SetTooltip("LinuxDrop — clipboard sync")
 	} else {
-		systray.SetTooltip("bgnconnect — " + strings.Join(devices, ", "))
+		systray.SetTooltip("LinuxDrop — " + strings.Join(devices, ", "))
 	}
 }
 
 func (t *Tray) onReady() {
-	systray.SetTitle("bgnconnect")
-	systray.SetTooltip("bgnconnect — clipboard sync")
+	systray.SetTitle("LinuxDrop")
+	systray.SetTooltip("LinuxDrop — clipboard sync")
 	systray.SetIcon(iconPNG(false))
 
 	t.statusItem = systray.AddMenuItem("Status: connecting…", "")

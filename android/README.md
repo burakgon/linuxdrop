@@ -1,4 +1,4 @@
-# bgnconnect — Android client
+# LinuxDrop — Android client
 
 Native Kotlin + **Jetpack Compose (Material 3)**. Reads the clipboard **in the background,
 event-driven** (no polling) via Shizuku, and connects to the relay over a WebSocket held by a
@@ -14,7 +14,7 @@ relay can't read it).
   and a **clipboard history** screen.
 - **Key stays out of the way:** auto-generated, hidden; visible via Settings → "Show key".
 - **No built-in server:** you point the app at your own relay (Settings → Advanced).
-- **Pairing:** QR (portrait scanner) or a `bgnconnect://pair?...` link (deep link) that carries
+- **Pairing:** QR (portrait scanner) or a `linuxdrop://pair?...` link (deep link) that carries
   the relay URL, so joining devices don't type anything.
 - **Sensitive content** (OTP/passwords — flagged `IS_SENSITIVE`) is not synced.
 
@@ -30,7 +30,7 @@ relay can't read it).
 
 ## Verify crypto without a device
 ```bash
-gradle :app:testDebugUnitTest   # BgnCryptoTest, against proto/crypto-test-vectors.json
+gradle :app:testDebugUnitTest   # LinuxDropCryptoTest, against proto/crypto-test-vectors.json
 ```
 
 ## Install + use
@@ -50,5 +50,5 @@ read/write (Shizuku pipe + FileProvider) is the newest path and OEM-dependent.
 ## Architecture
 `ui/` (Compose: Home/Onboarding/Settings/AddDevice/History + MainViewModel) · `service/`
 (foreground service + `SyncStatus` state flow + `ClipHistory`) · `net/` (`WsClient` OkHttp WS +
-roster, `BlobClient` for images) · `shizuku/` (UserService + reflection) · `crypto/BgnCrypto` ·
+roster, `BlobClient` for images) · `shizuku/` (UserService + reflection) · `crypto/LinuxDropCrypto` ·
 `config/Secret`. Protocol: [`../proto/PROTOCOL.md`](../proto/PROTOCOL.md).

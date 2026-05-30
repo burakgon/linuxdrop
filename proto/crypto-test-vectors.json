@@ -1,21 +1,21 @@
 {
-  "description": "bgnconnect crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
+  "description": "linuxdrop crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
   "derivation": {
     "roomId": "base64url(SHA-256(secret)), first 32 chars, no padding",
-    "encKey": "HKDF-SHA256(ikm=secret, salt='bgnconnect/enc/v1', info='aes-256-gcm', len=32)",
+    "encKey": "HKDF-SHA256(ikm=secret, salt='linuxdrop/enc/v1', info='aes-256-gcm', len=32)",
     "cipher": "AES-256-GCM; ct = base64(ciphertext || 16-byte tag)"
   },
   "input": {
     "secret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     "plaintext_utf8": "{\"type\":\"text\",\"text\":\"hello world 🌍\"}",
     "iv_hex": "0102030405060708090a0b0c",
-    "enc_salt": "bgnconnect/enc/v1",
+    "enc_salt": "linuxdrop/enc/v1",
     "enc_info": "aes-256-gcm"
   },
   "expected": {
     "sha256_secret_hex": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
     "roomId": "Yw3NKWbEM2aRElRIu7JbT_QSpJxzLbLI",
-    "encKey_hex": "12cbf6eb91c325c287b3ebbca8e7335b7fbfe4fe928067f3b4fadfce99abd58b",
-    "ct_base64": "FUS4yaGo5H/3LtuORl3XfhmiIjn2x1QLtYVk8ywuq5FnlP4C4ipnnJang/bOfHQW+r61It8Vj1T6"
+    "encKey_hex": "f9a208b7e84bcc359289bac40a8fd0ac24536741a3148ff0a82e2a966f2aaac6",
+    "ct_base64": "rcyxHkF6X/tznsjTgrMo8+NZZ4PscfZm6O7UTon0boegGXBN72LZB53aAKukhUc0lwszdq/HoIf6"
   }
 }

@@ -7,7 +7,7 @@ import { BlobStore, MAX_BLOB_BYTES } from "./blob.ts";
 import { createWebSocketHandlers, type WsData } from "./ws.ts";
 import { isValidRoomId, PROTOCOL_VERSION } from "./protocol.ts";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 // ICE servers handed to clients for the direct P2P (WebRTC) file path. Public STUN
 // is enough for direct/hole-punched connections (no data flows through it). If the
@@ -21,7 +21,7 @@ function iceServers() {
   const turnSecret = process.env.TURN_SECRET;
   if (turnUrl && turnSecret) {
     const expiry = Math.floor(Date.now() / 1000) + 12 * 3600; // 12h TTL
-    const username = `${expiry}:bgnconnect`;
+    const username = `${expiry}:linuxdrop`;
     const credential = createHmac("sha1", turnSecret).update(username).digest("base64");
     servers.push({ urls: turnUrl.split(",").map((s) => s.trim()), username, credential });
   }

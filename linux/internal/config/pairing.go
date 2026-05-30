@@ -10,17 +10,17 @@ import (
 
 // PairingURI builds the QR/text pairing string:
 //
-//	bgnconnect://pair?s=<base64url(secret)>&relay=<relay-url>
+//	linuxdrop://pair?s=<base64url(secret)>&relay=<relay-url>
 func PairingURI(secret []byte, relay string) string {
 	s := base64.RawURLEncoding.EncodeToString(secret)
-	return fmt.Sprintf("bgnconnect://pair?s=%s&relay=%s", s, url.QueryEscape(relay))
+	return fmt.Sprintf("linuxdrop://pair?s=%s&relay=%s", s, url.QueryEscape(relay))
 }
 
-// ParsePairing accepts a bgnconnect:// pairing URI or a raw hex secret. It
+// ParsePairing accepts a linuxdrop:// pairing URI or a raw hex secret. It
 // returns the secret bytes and, for URIs, the embedded relay URL ("" otherwise).
 func ParsePairing(input string) (secret []byte, relay string, err error) {
 	text := strings.TrimSpace(input)
-	if strings.HasPrefix(text, "bgnconnect://") {
+	if strings.HasPrefix(text, "linuxdrop://") {
 		u, err := url.Parse(text)
 		if err != nil {
 			return nil, "", err

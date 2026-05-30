@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	keyringService = "bgnconnect"
+	keyringService = "LinuxDrop"
 	keyringUser    = "shared-secret"
 )
 

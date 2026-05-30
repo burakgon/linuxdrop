@@ -18,7 +18,7 @@ type Config struct {
 	DeviceName string `json:"device_name"`
 }
 
-// Dir returns (and creates) $XDG_CONFIG_HOME/bgnconnect.
+// Dir returns (and creates) $XDG_CONFIG_HOME/linuxdrop.
 func Dir() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
@@ -28,7 +28,7 @@ func Dir() (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	d := filepath.Join(base, "bgnconnect")
+	d := filepath.Join(base, "LinuxDrop")
 	return d, os.MkdirAll(d, 0o700)
 }
 

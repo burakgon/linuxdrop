@@ -1,4 +1,4 @@
-# bgnconnect relay — example nginx vhost (ADVANCED).
+# LinuxDrop relay — example nginx vhost (ADVANCED).
 #
 # Most self-hosters don't need this: `docker compose up -d` already runs Caddy,
 # which terminates TLS and proxies WebSockets for you. Use this only if you prefer
@@ -42,8 +42,8 @@ server {
     # Blob uploads (images/files) — must exceed the backend's MAX_BLOB_BYTES (25 MiB).
     client_max_body_size 30m;
 
-    access_log /var/log/nginx/bgnconnect.access.log;
-    error_log  /var/log/nginx/bgnconnect.error.log;
+    access_log /var/log/nginx/linuxdrop.access.log;
+    error_log  /var/log/nginx/linuxdrop.error.log;
 
     proxy_http_version 1.1;
     proxy_set_header   Host              $host;

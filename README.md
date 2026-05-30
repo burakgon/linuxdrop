@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📋 bgnconnect
+# 📋 LinuxDrop
 
 ### Self-hosted, end-to-end encrypted **clipboard sync + direct file transfer** between Android and Linux.
 
@@ -10,7 +10,7 @@
 
 </div>
 
-bgnconnect does two things between your phone and computer — in real time, end-to-end encrypted, with
+LinuxDrop does two things between your phone and computer — in real time, end-to-end encrypted, with
 **no cloud account and no vendor in the middle**:
 
 - 🔄 **Clipboard sync** — copy a link, an OTP, a paragraph, or an image on one device and it's instantly
@@ -33,7 +33,7 @@ The relay that connects your devices is **one you host yourself**.
   WebRTC**: directly even when the two devices are on **different networks** (NAT hole-punched via STUN,
   no port-forwarding), and at full speed when they share a LAN. The bytes **never touch the relay**.
   Send from the Android **Share sheet** (or a device's send button), or **right-click → "Send with
-  bgnconnect"** on Linux.
+  LinuxDrop"** on Linux.
 - 🔒 **End-to-end encrypted** — AES-256-GCM with a key derived from a secret only your devices know.
 - 🕵️ **Zero-knowledge relay** — the server only sees an opaque room id; it can't read your clipboard,
   filenames, or device names, and file bytes never reach it.
@@ -80,11 +80,11 @@ runs the relay behind **Caddy**, which provisions a Let's Encrypt certificate au
 `wss://` works out of the box.
 
 ```bash
-git clone https://github.com/burakgon/bgnconnect.git
-cd bgnconnect/backend
+git clone https://github.com/burakgon/linuxdrop.git
+cd linuxdrop/backend
 
 # Point your domain's DNS at the host, then:
-BGN_DOMAIN=relay.yourdomain.com docker compose up -d --build
+LINUXDROP_DOMAIN=relay.yourdomain.com docker compose up -d --build
 ```
 
 That's it — your relay is live at `wss://relay.yourdomain.com`. Use that URL when you set up the first
@@ -106,7 +106,7 @@ profile, so a plain `docker compose up` stays STUN-only and opens no extra ports
 ```bash
 export TURN_SECRET=$(openssl rand -hex 32)            # shared by the relay and coturn
 export TURN_URL=turn:relay.yourdomain.com:3478
-BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+LINUXDROP_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
 ```
 
 Open UDP `3478` and `49160-49200` in your firewall (on clouds with 1:1 NAT — GCP/AWS/Azure — also add
@@ -118,30 +118,30 @@ from `/ice` automatically — no client-side change needed.
 **Linux (KDE/Wayland):**
 ```bash
 cd linux
-bash install.sh   # builds bgnconnectd → ~/.local/bin, installs the tray app, systemd unit,
-                  # and the "Send with bgnconnect" right-click action
+bash install.sh   # builds linuxdropd → ~/.local/bin, installs the tray app, systemd unit,
+                  # and the "Send with LinuxDrop" right-click action
 
-bgnconnectd pair <bgnconnect://… | hex> wss://relay.yourdomain.com   # pair to your relay
-bgnconnectd qr                                  # show a QR for your phone to scan
-systemctl --user enable --now bgnconnect        # start syncing (system tray)
+linuxdropd pair <linuxdrop://… | hex> wss://relay.yourdomain.com   # pair to your relay
+linuxdropd qr                                  # show a QR for your phone to scan
+systemctl --user enable --now linuxdrop        # start syncing (system tray)
 ```
 
 **Android:**
-1. Install the APK (grab it from [Releases](https://github.com/burakgon/bgnconnect/releases) or build
+1. Install the APK (grab it from [Releases](https://github.com/burakgon/linuxdrop/releases) or build
    it — see [`android/README.md`](android/README.md)) and install **Shizuku**.
 2. Open the app → finish the guided Shizuku step.
 3. Enter your relay URL and **Create network**, or **Scan QR** from another device.
 
 **Sending files**
-- **Android:** **Share → bgnconnect** from any app, or tap the send icon next to a device. Received
+- **Android:** **Share → LinuxDrop** from any app, or tap the send icon next to a device. Received
   files land in **Downloads** and show in the in-app history (tap to open).
-- **Linux:** right-click a file in Dolphin → **"Send with bgnconnect"**, or the tray's **"Send file…"**
-  (`bgnconnectd send [--to <device>] <file>…` from the terminal). Received files land in `~/Downloads`
+- **Linux:** right-click a file in Dolphin → **"Send with LinuxDrop"**, or the tray's **"Send file…"**
+  (`linuxdropd send [--to <device>] <file>…` from the terminal). Received files land in `~/Downloads`
   and the folder opens automatically.
 
 ## 🔐 Security model
 
-- The **secret never reaches the relay.** Pairing is offline (QR / `bgnconnect://` link / hex).
+- The **secret never reaches the relay.** Pairing is offline (QR / `linuxdrop://` link / hex).
 - `roomId = base64url(SHA-256(secret))[:32]`; `encKey = HKDF-SHA256(secret, …)`; clipboard payloads are
   **AES-256-GCM** with a fresh random IV each time. A wrong secret fails the GCM tag → rejected.
 - **File transfer is peer-to-peer (WebRTC, DTLS-encrypted).** The WebRTC offer/answer is itself sealed

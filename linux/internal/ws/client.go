@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"bgnconnect/linux/internal/wire"
+	"linuxdrop/linux/internal/wire"
 )
 
 const pingInterval = 180 * time.Second // well under the backend's 240s idle timeout

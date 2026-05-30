@@ -1,14 +1,14 @@
 services:
-  bgnconnect:
+  linuxdrop:
     build: .
     restart: unless-stopped
     expose:
       - "3000"
     volumes:
-      - bgn-data:/data
+      - linuxdrop-data:/data
     environment:
       PORT: "3000"
-      DB_PATH: /data/bgnconnect.db
+      DB_PATH: /data/linuxdrop.db
       # Set both to advertise a TURN relay to clients (see the coturn service below).
       TURN_URL: ${TURN_URL:-}
       TURN_SECRET: ${TURN_SECRET:-}
@@ -19,7 +19,7 @@ services:
       retries: 3
 
   # TLS terminator: serves wss:// publicly, auto-provisions Let's Encrypt certs.
-  # Set BGN_DOMAIN to your public hostname; defaults to localhost (self-signed).
+  # Set LINUXDROP_DOMAIN to your public hostname; defaults to localhost (self-signed).
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -28,13 +28,13 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      BGN_DOMAIN: ${BGN_DOMAIN:-localhost}
+      LINUXDROP_DOMAIN: ${LINUXDROP_DOMAIN:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - bgnconnect
+      - linuxdrop
 
   # Optional TURN relay (coturn) — the last-resort path for the strictest NATs
   # (some mobile carriers / symmetric NAT) where direct hole-punching fails.
@@ -43,7 +43,7 @@ services:
   #
   #   export TURN_SECRET=$(openssl rand -hex 32)
   #   export TURN_URL=turn:relay.yourdomain.com:3478
-  #   BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+  #   LINUXDROP_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
   #
   # Open UDP 3478 and UDP 49160-49200 in your firewall. On clouds with 1:1 NAT
   # (GCP/AWS/Azure), also append `--external-ip=<your-public-ip>` to the command.
@@ -59,13 +59,13 @@ services:
       - --no-dtls
       - --use-auth-secret
       - --static-auth-secret=${TURN_SECRET:-}
-      - --realm=${BGN_DOMAIN:-localhost}
+      - --realm=${LINUXDROP_DOMAIN:-localhost}
       - --listening-port=3478
       - --min-port=49160
       - --max-port=49200
       - --log-file=stdout
 
 volumes:
-  bgn-data:
+  linuxdrop-data:
   caddy-data:
   caddy-config:

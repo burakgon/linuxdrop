@@ -1,4 +1,4 @@
-# bgnconnect protocol (v1)
+# LinuxDrop protocol (v1)
 
 Three components speak this protocol: the **backend** (Bun relay), **linux** (Go daemon),
 and **android** (Kotlin). The backend is **zero-knowledge**: it only ever sees the `roomId`
@@ -76,7 +76,7 @@ ends (Go + Kotlin). Verification: [`crypto-test-vectors.json`](./crypto-test-vec
 secret  = 32-byte CSPRNG (shared on pairing: QR + text)
 roomId  = base64url( SHA-256(secret) )            → first 32 characters, no padding
 encKey  = HKDF-SHA256(ikm=secret,
-                      salt="bgnconnect/enc/v1",
+                      salt="linuxdrop/enc/v1",
                       info="aes-256-gcm", len=32)
 clip.ct = AES-256-GCM(key=encKey, iv=random 12B, plaintext)  → base64(ciphertext || tag16)
 ```
@@ -88,7 +88,7 @@ clip.ct = AES-256-GCM(key=encKey, iv=random 12B, plaintext)  → base64(cipherte
 ### Pairing
 
 - One device generates the `secret`; it is transferred to the others via **QR** or **text**:
-  `bgnconnect://pair?s=<base64url(secret)>&relay=<wss-url>`
+  `linuxdrop://pair?s=<base64url(secret)>&relay=<wss-url>`
 - The backend is not involved in pairing (pairing is entirely offline + E2E).
 
 ## 5. Loop prevention
@@ -145,7 +145,7 @@ GET /ice                       → { "iceServers": [ {urls:"stun:…"}, {urls:"t
   as they're gathered (candidates arriving before the remote SDP is applied are queued, then flushed).
   The **entire SDP (including the DTLS `a=fingerprint`) is E2E-encrypted with the room key**, so a
   malicious relay cannot MITM the DTLS handshake — the shared secret authenticates the peer.
-- **Transfer (over the DataChannel `bgn-file`, DTLS-encrypted by WebRTC):**
+- **Transfer (over the DataChannel `linuxdrop-file`, DTLS-encrypted by WebRTC):**
   1. `{"t":"head","name","size","mime","sha256"}`
   2. binary chunks (~16 KiB, with backpressure)
   3. `{"t":"done"}` → receiver verifies size + SHA-256, saves to Downloads, notifies. `{"t":"err"}` aborts.

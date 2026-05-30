@@ -47,7 +47,7 @@ async function main() {
 
   const ikm = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "HKDF", hash: "SHA-256", salt: encoder.encode("bgnconnect/enc/v1"), info: encoder.encode("aes-256-gcm") },
+    { name: "HKDF", hash: "SHA-256", salt: encoder.encode("linuxdrop/enc/v1"), info: encoder.encode("aes-256-gcm") },
     ikm,
     256,
   );
@@ -72,7 +72,7 @@ async function main() {
     stdout: "inherit", stderr: "inherit",
   });
   const daemon = Bun.spawn(
-    [import.meta.dir + "/../linux/bin/bgnconnectd", "--no-tray", "--relay", RELAY, "--dev-secret", SECRET_HEX],
+    [import.meta.dir + "/../linux/bin/linuxdropd", "--no-tray", "--relay", RELAY, "--dev-secret", SECRET_HEX],
     { stdout: "inherit", stderr: "inherit" },
   );
   let ws: WebSocket | undefined;

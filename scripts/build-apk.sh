@@ -12,7 +12,7 @@ docker run --rm \
   -e ANDROID_USER_HOME=/sdk/.android \
   -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
   -v "$PWD/android":/work \
-  -v bgn-android-sdk:/sdk \
+  -v linuxdrop-android-sdk:/sdk \
   -w /work \
   gradle:8.11.1-jdk21 \
   bash -c '

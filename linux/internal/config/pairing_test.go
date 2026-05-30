@@ -40,7 +40,7 @@ func TestParsePairingRejectsJunk(t *testing.T) {
 	if _, _, err := ParsePairing("not a secret"); err == nil {
 		t.Error("expected error for junk input")
 	}
-	if _, _, err := ParsePairing("bgnconnect://pair?relay=wss://x"); err == nil {
+	if _, _, err := ParsePairing("linuxdrop://pair?relay=wss://x"); err == nil {
 		t.Error("expected error for URI without secret")
 	}
 }

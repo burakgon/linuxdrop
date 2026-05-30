@@ -1,4 +1,4 @@
-module bgnconnect/linux
+module linuxdrop/linux
 
 go 1.26.3
 

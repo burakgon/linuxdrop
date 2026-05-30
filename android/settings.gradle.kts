@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "bgnconnect"
+rootProject.name = "LinuxDrop"
 include(":app")

@@ -1,4 +1,4 @@
-# bgnconnect relay — ADVANCED: front with your own existing reverse proxy.
+# LinuxDrop relay — ADVANCED: front with your own existing reverse proxy.
 #
 # Most self-hosters should use docker-compose.yml instead (it bundles Caddy with
 # automatic TLS). Use THIS file only if you already run nginx/another proxy: the
@@ -6,18 +6,18 @@
 # reverse-proxies your public subdomain to it (see deploy/nginx-relay.conf.example).
 # SQLite lives in a named volume so the bun user owns it (avoids permission issues).
 services:
-  bgnconnect:
+  linuxdrop:
     build: .
-    image: bgnconnect-backend:latest
-    container_name: bgnconnect
+    image: linuxdrop-backend:latest
+    container_name: linuxdrop
     restart: unless-stopped
     ports:
       - "127.0.0.1:3001:3000"
     volumes:
-      - bgn-data:/data
+      - linuxdrop-data:/data
     environment:
       PORT: "3000"
-      DB_PATH: /data/bgnconnect.db
+      DB_PATH: /data/linuxdrop.db
       # Set both to advertise the bundled TURN relay to clients (see coturn below).
       TURN_URL: ${TURN_URL:-}
       TURN_SECRET: ${TURN_SECRET:-}
@@ -28,4 +28,4 @@ services:
       retries: 3
 
 volumes:
-  bgn-data:
+  linuxdrop-data:

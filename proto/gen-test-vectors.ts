@@ -1,4 +1,4 @@
-// bgnconnect — cross-language crypto test vector generator.
+// LinuxDrop — cross-language crypto test vector generator.
 //
 // Run:  bun run proto/gen-test-vectors.ts
 // Out:  proto/crypto-test-vectors.json
@@ -9,7 +9,7 @@
 //
 // Derivations:
 //   roomId = base64url(SHA-256(secret))         -> first 32 chars, no padding
-//   encKey = HKDF-SHA256(ikm=secret, salt="bgnconnect/enc/v1", info="aes-256-gcm", len=32)
+//   encKey = HKDF-SHA256(ikm=secret, salt="linuxdrop/enc/v1", info="aes-256-gcm", len=32)
 //   ct     = AES-256-GCM(key=encKey, iv, plaintext)  -> base64(ciphertext || 16-byte tag)
 
 import { writeFileSync } from "node:fs";
@@ -35,7 +35,7 @@ async function aesGcmEncrypt(key: Uint8Array, iv: Uint8Array, plaintext: Uint8Ar
   return new Uint8Array(ct); // ciphertext || tag(16)
 }
 
-const ENC_SALT = "bgnconnect/enc/v1";
+const ENC_SALT = "linuxdrop/enc/v1";
 const ENC_INFO = "aes-256-gcm";
 
 // Fixed, deterministic inputs.
@@ -51,7 +51,7 @@ const ct = await aesGcmEncrypt(encKey, iv, plaintext);
 
 const vectors = {
   description:
-    "bgnconnect crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
+    "LinuxDrop crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
   derivation: {
     roomId: "base64url(SHA-256(secret)), first 32 chars, no padding",
     encKey: `HKDF-SHA256(ikm=secret, salt='${ENC_SALT}', info='${ENC_INFO}', len=32)`,

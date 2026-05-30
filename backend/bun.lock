@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bgnconnect-backend",
+      "name": "linuxdrop-backend",
       "dependencies": {
         "hono": "^4.9.0",
       },

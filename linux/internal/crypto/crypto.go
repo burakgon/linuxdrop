@@ -1,4 +1,4 @@
-// Package crypto implements bgnconnect's E2E primitives. These MUST stay
+// Package crypto implements LinuxDrop's E2E primitives. These MUST stay
 // byte-for-byte compatible with the Kotlin (android) side and the pinned
 // vectors in proto/crypto-test-vectors.json. See proto/PROTOCOL.md §4.
 package crypto
@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	encSalt   = "bgnconnect/enc/v1"
+	encSalt   = "linuxdrop/enc/v1"
 	encInfo   = "aes-256-gcm"
 	roomIDLen = 32
 )
@@ -88,7 +88,7 @@ func (c *Cipher) Open(ivB64, ctB64 string) ([]byte, error) {
 
 // SealBlob encrypts content under a fresh nonce, returning the self-contained blob
 // format used for image/file transfer: nonce(12) || ciphertext || tag(16). See
-// PROTOCOL.md §6. Must match android's BgnCrypto.sealBlob.
+// PROTOCOL.md §6. Must match android's LinuxDropCrypto.sealBlob.
 func (c *Cipher) SealBlob(content []byte) ([]byte, error) {
 	nonce := make([]byte, c.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {

@@ -27,7 +27,7 @@ const sha256hex = async (s: string) => Buffer.from(await sha256(enc.encode(s))).
 const roomId = toB64url(await sha256(secret)).slice(0, 32);
 const ikm = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveBits"]);
 const bits = await crypto.subtle.deriveBits(
-  { name: "HKDF", hash: "SHA-256", salt: enc.encode("bgnconnect/enc/v1"), info: enc.encode("aes-256-gcm") },
+  { name: "HKDF", hash: "SHA-256", salt: enc.encode("linuxdrop/enc/v1"), info: enc.encode("aes-256-gcm") },
   ikm, 256,
 );
 const key = await crypto.subtle.importKey("raw", new Uint8Array(bits), "AES-GCM", false, ["encrypt", "decrypt"]);

@@ -1,4 +1,4 @@
-# bgnconnect — relay backend
+# LinuxDrop — relay backend
 
 Hono + Bun WebSocket relay. **Zero-knowledge**: it only sees the `roomId` (a hash of the
 shared secret) and routes opaque, E2E-encrypted frames between a room's devices. It never
@@ -31,7 +31,7 @@ certificate — `wss://` works out of the box. You only need a domain pointing a
 
 ```bash
 # With your public domain (automatic Let's Encrypt TLS → wss://):
-BGN_DOMAIN=relay.yourdomain.com docker compose up -d --build
+LINUXDROP_DOMAIN=relay.yourdomain.com docker compose up -d --build
 
 # Local/test (Caddy serves a locally-trusted self-signed cert):
 docker compose up -d --build
@@ -39,14 +39,14 @@ docker compose up -d --build
 - Devices then connect to `wss://relay.yourdomain.com` (used as the relay URL when pairing).
 - No public domain? You can also reach it over a Tailscale/WireGuard network
   (then `ws://<tailscale-ip>:3000`, without Caddy).
-- SQLite data persists in the `bgn-data` volume; blobs live under `/data/blobs` (ephemeral).
+- SQLite data persists in the `linuxdrop-data` volume; blobs live under `/data/blobs` (ephemeral).
 
 ## Environment variables
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Listen port |
-| `DB_PATH` | `/data/bgnconnect.db` | SQLite path (`:memory:` for tests) |
-| `BGN_DOMAIN` | `localhost` | Caddy public hostname (TLS); also coturn's realm |
+| `DB_PATH` | `/data/linuxdrop.db` | SQLite path (`:memory:` for tests) |
+| `LINUXDROP_DOMAIN` | `localhost` | Caddy public hostname (TLS); also coturn's realm |
 | `TURN_URL` | _(unset)_ | TURN URL advertised to clients, e.g. `turn:relay.yourdomain.com:3478` (comma-separated for several) |
 | `TURN_SECRET` | _(unset)_ | Shared `use-auth-secret` for time-limited TURN credentials — set the same value on the relay and coturn |
 
@@ -63,7 +63,7 @@ up` stays STUN-only and opens no extra ports:
 ```bash
 export TURN_SECRET=$(openssl rand -hex 32)            # shared by the relay and coturn
 export TURN_URL=turn:relay.yourdomain.com:3478
-BGN_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
+LINUXDROP_DOMAIN=relay.yourdomain.com docker compose --profile turn up -d --build
 ```
 
 - The relay derives short-lived (12 h) HMAC-SHA1 credentials from `TURN_SECRET` and returns

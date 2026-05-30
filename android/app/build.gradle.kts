@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.bgnconnect.app"
+    namespace = "com.linuxdrop.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.bgnconnect.app"
+        applicationId = "com.linuxdrop.app"
         minSdk = 29          // Android 10 — the version where background clipboard was locked down
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         // WebRTC ships native .so per ABI; ship only the ABIs real phones use to
         // keep the APK from ballooning (drops x86/x86_64 emulator builds).

@@ -14,7 +14,7 @@ RUN mkdir -p /data && chown -R bun:bun /data
 VOLUME /data
 
 ENV PORT=3000
-ENV DB_PATH=/data/bgnconnect.db
+ENV DB_PATH=/data/linuxdrop.db
 EXPOSE 3000
 USER bun
 

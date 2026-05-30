@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"bgnconnect/linux/internal/blob"
-	"bgnconnect/linux/internal/crypto"
-	"bgnconnect/linux/internal/wire"
+	"linuxdrop/linux/internal/blob"
+	"linuxdrop/linux/internal/crypto"
+	"linuxdrop/linux/internal/wire"
 )
 
 // Clipboard abstracts the OS clipboard (real: clipboard.Wayland; tests: a fake).

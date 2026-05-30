@@ -665,8 +665,11 @@ func runWebcamKeepalive(ctx context.Context, mgr *webcam.Manager, devPath string
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if mgr.Active() {
-				// Real session owns the device; release our writer if any.
+			if mgr.Streaming() {
+				// Real frames are flowing; release our writer so we don't fight
+				// the producer for buffer slots. (We don't yield during the
+				// signaling phase — that would briefly drop CAPTURE caps and
+				// the browser would lose the device from its picker.)
 				closeWriter()
 				continue
 			}

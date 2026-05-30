@@ -18,6 +18,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtp"
@@ -93,11 +94,26 @@ func (m *Manager) HWAccel() string { return m.cfg.HWAccel }
 // Device returns the configured v4l2loopback path.
 func (m *Manager) Device() string { return m.cfg.Device }
 
-// Active returns true while a session is running.
+// Active returns true while a session exists (signaling or streaming).
 func (m *Manager) Active() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sess != nil
+}
+
+// Streaming returns true only when a session is actively writing decoded
+// frames to the v4l2 device. The keepalive uses this (not Active()) so that
+// during the signaling phase — when no real frames are flowing yet — the
+// keepalive keeps the v4l2loopback device in CAPTURE mode. Without this,
+// the device briefly disappears from Chrome's enumeration between tray-click
+// and the first incoming track.
+func (m *Manager) Streaming() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sess == nil {
+		return false
+	}
+	return m.sess.streaming.Load()
 }
 
 // Start spins up a new session. Returns an error if one is already running.
@@ -174,6 +190,7 @@ type Session struct {
 	writer    *v4l2.Writer
 	pipe      *Pipe
 	codecUsed string
+	streaming atomic.Bool // true while handleTrack is actively writing v4l2 frames
 
 	mu        sync.Mutex
 	remoteSet bool
@@ -208,10 +225,26 @@ func (s *Session) run() error {
 	})
 	s.manager.logger.Printf("webcam[%s]: request sent (%dx%d@%d, camera=%s, codec_pref=%s, target=%s, hwaccel=%s)",
 		s.id, s.opts.Width, s.opts.Height, s.opts.FPS, s.opts.Camera, s.opts.Codec, s.opts.Target, s.manager.HWAccel())
-	// 2. Block until peer stops, ctx cancels, or a fatal error occurs.
+	// Offer timeout — if the phone never replies (service killed, stale state,
+	// app closed), abort so the keepalive can resume and the browser doesn't
+	// show a stuck black feed.
+	offerTimeout := time.NewTimer(8 * time.Second)
+	defer offerTimeout.Stop()
+	// 2. Block until peer answers (and starts streaming), peer stops, ctx
+	// cancels, or the offer times out.
 	select {
 	case <-s.ctx.Done():
 		s.stop("ctx-cancel")
+	case <-offerTimeout.C:
+		s.mu.Lock()
+		gotOffer := s.pc != nil
+		s.mu.Unlock()
+		if !gotOffer {
+			s.manager.logger.Printf("webcam[%s]: timed out waiting for phone offer", s.id)
+			s.stop("no-response")
+		} else {
+			<-s.done
+		}
 	case <-s.done:
 	}
 	return nil
@@ -357,6 +390,8 @@ func (s *Session) handleTrack(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) 
 	}
 	s.writer = w
 	defer w.Close()
+	s.streaming.Store(true)
+	defer s.streaming.Store(false)
 	s.manager.logger.Printf("webcam[%s]: streaming to %s", s.id, s.manager.cfg.Device)
 
 	// Reader goroutine: pull YUV from ffmpeg → write to v4l2.

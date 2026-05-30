@@ -5,6 +5,7 @@
 package v4l2
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -66,8 +67,16 @@ func frameSize(w, h int) int { return w * h * 3 / 2 }
 // at the requested resolution + frame rate, and returns a ready-to-Write Writer.
 // fps is recorded for diagnostic purposes; the kernel doesn't require it for
 // output devices (the producer dictates the cadence).
+//
+// We open the device O_NONBLOCK so write() never blocks when no reader is
+// consuming. With v4l2loopback's default behavior (and exclusive_caps=1), a
+// blocking write would freeze the producer the moment a frame has nowhere to
+// go — which means the producer must wait for a reader before it can move at
+// all. With O_NONBLOCK, the kernel returns EAGAIN instead, and we simply drop
+// the frame (logged once below). That way a user can open Cheese / Zoom AFTER
+// the stream is already running and start seeing live frames immediately.
 func Open(path string, w, h, fps int) (*Writer, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	f, err := os.OpenFile(path, os.O_WRONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -92,11 +101,17 @@ func Open(path string, w, h, fps int) (*Writer, error) {
 
 // Write streams one YUV420 frame. buf must be exactly frameSize(w,h) bytes; we
 // return an error otherwise so callers don't silently lose framing.
+// When no v4l2 reader is consuming and v4l2loopback has no buffer slot free,
+// write() returns EAGAIN under O_NONBLOCK — we treat that as a drop and return
+// nil so the producer keeps running.
 func (w *Writer) Write(buf []byte) error {
 	if want := frameSize(w.w, w.h); len(buf) != want {
 		return fmt.Errorf("frame size %d != expected %d (%dx%d YUV420)", len(buf), want, w.w, w.h)
 	}
 	_, err := w.f.Write(buf)
+	if err != nil && errors.Is(err, unix.EAGAIN) {
+		return nil // dropped — no reader / queue full
+	}
 	return err
 }
 

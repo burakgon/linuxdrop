@@ -155,15 +155,12 @@ class SyncForegroundService : Service() {
         val payload = try { JSONObject(jsonText) } catch (e: Exception) { return }
         when (payload.optString("kind")) {
             "webcam-request" -> {
-                if (webcam != null) {
-                    Log.w(TAG, "webcam-request while already streaming; rejecting")
-                    sendDirectedSignal(fromDev, JSONObject().apply {
-                        put("kind", "webcam-stop")
-                        put("session", payload.optString("session"))
-                        put("reason", "in-use")
-                    }.toString().toByteArray(Charsets.UTF_8))
-                    return
-                }
+                // Always supersede any prior session — if the user clicks tray "Start"
+                // again, they want a fresh stream, not "in-use". Old session might be
+                // stuck because cleanup didn't fire (e.g., Linux side dropped WebRTC
+                // without sending webcam-stop, ICE didn't reach FAILED).
+                runCatching { webcam?.stop("superseded") }
+                webcam = null
                 if (!hasCameraPermission()) {
                     sendDirectedSignal(fromDev, JSONObject().apply {
                         put("kind", "webcam-stop")

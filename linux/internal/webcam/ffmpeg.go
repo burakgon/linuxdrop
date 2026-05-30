@@ -118,8 +118,24 @@ func NewV4L2Writer(hwaccel, codec string, w, h int, devPath string) (*Pipe, erro
 }
 
 // ffmpegV4L2Args builds argv for: NALU stream on stdin → v4l2loopback output.
+//
+// Latency tuning: by default ffmpeg's demuxer + decoder queue several seconds
+// of frames. For a live webcam we want sub-100ms glass-to-glass:
+//   - -probesize 32 / -analyzeduration 0 → skip stream probing
+//   - -fflags nobuffer+flush_packets   → don't queue at the demuxer
+//   - -flags low_delay                  → decoder hint (no B-frame reorder buffer)
+//   - -avioflags direct                 → unbuffered I/O
+//   - -strict experimental              → required by some of the flags above
 func ffmpegV4L2Args(hwaccel, codec string, w, h int, devPath string) []string {
-	args := []string{"-loglevel", "warning"}
+	args := []string{
+		"-loglevel", "warning",
+		"-probesize", "100000",        // big enough to read SPS/PPS, small enough to start fast (~100 KB)
+		"-analyzeduration", "100000",  // µs — minimal analysis
+		"-fflags", "nobuffer+flush_packets+discardcorrupt",
+		"-flags", "low_delay",
+		"-strict", "experimental",
+		"-avioflags", "direct",
+	}
 	switch hwaccel {
 	case "vaapi":
 		args = append(args,
@@ -133,15 +149,17 @@ func ffmpegV4L2Args(hwaccel, codec string, w, h int, devPath string) []string {
 		args = append(args, "-hwaccel", "qsv", "-hwaccel_output_format", "yuv420p")
 	}
 	args = append(args, "-f", codec, "-i", "pipe:0")
-	// v4l2loopback consumer. The Android back camera (when phone is held in
-	// portrait) sends 720x1280, so we transpose 90° CW + scale to the target
-	// landscape dimensions. format=yuv420p forces planar I420 (avoids the
-	// NV12-as-I420 plane-swap-tinted-output bug).
-	vf := fmt.Sprintf("transpose=1,scale=%d:%d,format=yuv420p", w, h)
+	// v4l2loopback consumer. The Android back camera (sensor mounted 90° CCW
+	// relative to portrait display) ships 720x1280, so we transpose 90° CCW
+	// to get a right-way-up landscape image, then scale to target dimensions.
+	// format=yuv420p forces planar I420 (avoids the NV12-as-I420 plane-swap
+	// tinted-output bug).
+	vf := fmt.Sprintf("transpose=2,scale=%d:%d,format=yuv420p", w, h)
 	args = append(args,
 		"-vf", vf,
 		"-s", fmt.Sprintf("%dx%d", w, h),
 		"-pix_fmt", "yuv420p",
+		"-fps_mode", "passthrough",
 		"-f", "v4l2",
 		devPath,
 	)

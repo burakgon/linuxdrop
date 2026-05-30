@@ -156,10 +156,14 @@ private fun StatusCard(ui: UiModel, onToggle: () -> Unit) {
                     Text("Stop")
                 }
             } else {
-                Button(onClick = onToggle, modifier = Modifier.fillMaxWidth(), enabled = ui.shizukuReady) {
+                // Shizuku is required for background clipboard sync, but NOT for the
+                // webcam feature. Allow Start without it — clipboard is silently
+                // disabled until Shizuku is granted, but webcam (and inbound files)
+                // still work via the foreground service.
+                Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (ui.shizukuReady) "Start" else "Set up Shizuku first")
+                    Text(if (ui.shizukuReady) "Start" else "Start (webcam + files only)")
                 }
             }
         }

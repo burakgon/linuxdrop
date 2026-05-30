@@ -83,10 +83,17 @@ class SyncForegroundService : Service() {
         blob = BlobClient(relay)
 
         shizuku = ShizukuClipboard(this)
-        shizuku.startWatching(
-            onText = { text -> onLocalClip(text) },
-            onImage = { data, mime -> onLocalImage(data, mime) },
-        )
+        // Shizuku is required for background clipboard sync, but webcam + file transfer
+        // work without it. Fail soft so users on webcam-only setups still get a running
+        // service.
+        try {
+            shizuku.startWatching(
+                onText = { text -> onLocalClip(text) },
+                onImage = { data, mime -> onLocalImage(data, mime) },
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Shizuku unavailable; clipboard sync disabled (webcam + files still work): ${t.message}")
+        }
 
         SyncStatus.setRunning(true)
         ws = WsClient(

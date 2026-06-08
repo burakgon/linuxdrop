@@ -30,6 +30,27 @@ Conventions to follow (from the existing code): explicit AIDL transaction ids wi
 
 ## Task 1: Phase-0 feasibility spike (GATE) — toggle a fixed hotspot via reflection
 
+> **✅ GATE RESULT (2026-06-08, on-device OnePlus CPH2765, current Android): GREEN.**
+> Hotspot came up — iface `wlan2`, `10.95.17.101/24`, ssid `LD-spike`, `startTethering result=0`,
+> Wi-Fi state machine `CMD_SET_AP 1` from `networkstack.tethering`. **The naive reflection in the
+> steps below did NOT work as written**; three device-discovered fixes were required, all the same
+> root cause — *a shell-uid process must present the shell package identity to the framework*. The
+> authoritative working code is the committed `TetherUserService.kt` (commit `3c44e2b`):
+> 1. **`setSoftApConfiguration`** → call `IWifiManager` directly via `ServiceManager` passing
+>    `packageName="com.android.shell"`. The high-level `WifiManager` attaches the app's
+>    `getOpPackageName` → `SecurityException: Package com.linuxdrop.app does not belong to 2000`.
+> 2. **`startTethering`/`stopTethering`** → call `ITetheringConnector` directly (reflected from
+>    `TetheringManager.mConnector`) with `callerPkg="com.android.shell"`. The manager path returns
+>    `TETHER_ERROR_NO_CHANGE_TETHERING_PERMISSION` (14).
+> 3. **Result callback must be a real binder.** A `java.lang.reflect.Proxy` returns `null` from
+>    `asBinder()` and silently never fires (latch times out). Use a real `IIntResultListener.Stub`
+>    via a local AIDL mirror at `aidl/android/net/IIntResultListener.aidl` (same pattern the project
+>    already uses for `IOnPrimaryClipChangedListener`).
+> Note: `createPackageContext("com.android.shell")` did **not** fix `getOpPackageName` — direct
+> binder calls with an explicit package arg are required. The device names its SoftAp iface `wlan2`
+> (not `ap0`/`wlan1`). This refines the spec's predicted risk (OEM *signature* variance) to the
+> actual one: **shell package-identity + binder-callback marshalling.**
+
 **Files:**
 - Create: `android/app/src/main/aidl/com/linuxdrop/app/shizuku/ITetherUserService.aidl`
 - Create: `android/app/src/main/java/com/linuxdrop/app/shizuku/TetherUserService.kt`
@@ -271,7 +292,7 @@ if (BuildConfig.DEBUG) {
 
 - [ ] **Step 6: Build and install the debug APK**
 
-Run: `cd android && ./gradlew installDebug`
+Run: `bash scripts/build-apk.sh && adb install -r android/app/build/outputs/apk/debug/app-debug.apk`  (hermetic Docker debug build — this repo has no gradlew/local SDK; `BuildConfig.DEBUG` is true so the spike button shows)
 Expected: `BUILD SUCCESSFUL`, app installed. (For a clean hermetic build use `bash scripts/build-apk.sh`, but the gradle install loop is faster for the spike.)
 
 - [ ] **Step 7: On-device verification (THE GATE)**
@@ -343,7 +364,7 @@ In `ShizukuTether.kt`, replace the two `TETHER_ERR_REFLECTION` fallbacks in `ena
 
 - [ ] **Step 3: Build to verify nothing broke**
 
-Run: `cd android && ./gradlew assembleDebug`
+Run: `bash scripts/build-apk.sh`  (hermetic Docker debug build)
 Expected: `BUILD SUCCESSFUL`. (Re-tap both spike buttons after install to confirm codes still read `0`.)
 
 - [ ] **Step 4: Commit**
@@ -443,7 +464,7 @@ Add:
 
 - [ ] **Step 5: Build and verify**
 
-Run: `cd android && ./gradlew assembleDebug`
+Run: `bash scripts/build-apk.sh`  (hermetic Docker debug build)
 Expected: `BUILD SUCCESSFUL`.
 
 On-device sanity: tap "hotspot ON", do NOT send keepalives, and confirm the hotspot turns itself off ~3 minutes later (logcat: `safety auto-off`). For a faster check, temporarily set `SAFETY_WINDOW_MS = 20_000L`, verify, then restore `180_000L`.
@@ -518,7 +539,7 @@ In `SettingsScreen.kt`, change the `remember { ShizukuTether(ctx) }` to `remembe
 
 - [ ] **Step 3: Build and verify the seam still toggles the hotspot**
 
-Run: `cd android && ./gradlew installDebug`
+Run: `bash scripts/build-apk.sh && adb install -r android/app/build/outputs/apk/debug/app-debug.apk`  (hermetic Docker debug build — this repo has no gradlew/local SDK; `BuildConfig.DEBUG` is true so the spike button shows)
 Expected: `BUILD SUCCESSFUL`. Re-tap both buttons; Toasts still read `0`, hotspot still toggles. logcat now also shows `enable -> ok` / `disable -> ok`.
 
 - [ ] **Step 4: Commit**

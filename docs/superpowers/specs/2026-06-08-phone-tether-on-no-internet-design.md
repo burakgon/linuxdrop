@@ -91,6 +91,15 @@ programmatically. Verified against current AOSP `main`:
 
 **Phase 0 is a feasibility spike that gates everything else** (see §10).
 
+> **✅ VALIDATED on-device (2026-06-08, OnePlus CPH2765, current Android): GREEN.** The hotspot
+> enables via the shell-uid path (`startTethering result=0`; SoftAp iface `wlan2` up at
+> `10.95.17.101/24`, ssid `LD-spike`). The real gotchas were not OEM *signature* variance but
+> **shell package-identity** — call the `IWifiManager` / `ITetheringConnector` binders directly,
+> passing `packageName="com.android.shell"` (the high-level managers attach the app's
+> `getOpPackageName`, which uid 2000 doesn't own) — and **binder-callback marshalling** (the result
+> listener must be a real `IIntResultListener.Stub`, not a `java.lang.reflect.Proxy`, whose
+> `asBinder()` is null). See plan Task 1 "GATE RESULT" and commit `3c44e2b`.
+
 ### Sources
 
 - WifiShellCommand (AOSP main): https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/main/service/java/com/android/server/wifi/WifiShellCommand.java

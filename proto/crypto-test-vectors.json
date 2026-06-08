@@ -1,5 +1,5 @@
 {
-  "description": "linuxdrop crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
+  "description": "LinuxDrop crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
   "derivation": {
     "roomId": "base64url(SHA-256(secret)), first 32 chars, no padding",
     "encKey": "HKDF-SHA256(ikm=secret, salt='linuxdrop/enc/v1', info='aes-256-gcm', len=32)",
@@ -16,6 +16,12 @@
     "sha256_secret_hex": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
     "roomId": "Yw3NKWbEM2aRElRIu7JbT_QSpJxzLbLI",
     "encKey_hex": "f9a208b7e84bcc359289bac40a8fd0ac24536741a3148ff0a82e2a966f2aaac6",
-    "ct_base64": "rcyxHkF6X/tznsjTgrMo8+NZZ4PscfZm6O7UTon0boegGXBN72LZB53aAKukhUc0lwszdq/HoIf6"
+    "ct_base64": "rcyxHkF6X/tznsjTgrMo8+NZZ4PscfZm6O7UTon0boegGXBN72LZB53aAKukhUc0lwszdq/HoIf6",
+    "tether": {
+      "salt": "linuxdrop/tether/v1",
+      "kBle_hex": "793b6d391031856ed02410d54050c062f02ec2a696c4b3b615e22ff56f130f99",
+      "ssid": "LD-2f0d61cb",
+      "psk": "9ddc1c62b4f9a1da71d45bab"
+    }
   }
 }

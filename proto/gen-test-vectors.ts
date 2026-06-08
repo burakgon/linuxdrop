@@ -49,6 +49,14 @@ const roomId = b64url(digest).slice(0, 32);
 const encKey = await hkdfSha256(secret, enc.encode(ENC_SALT), enc.encode(ENC_INFO), 32);
 const ct = await aesGcmEncrypt(encKey, iv, plaintext);
 
+// --- tether (Plan 2) derivations ---
+const TETHER_SALT = "linuxdrop/tether/v1";
+const kBle = await hkdfSha256(secret, enc.encode(TETHER_SALT), enc.encode("ble-aead-key"), 32);
+const ssidRaw = await hkdfSha256(secret, enc.encode(TETHER_SALT), enc.encode("softap-ssid"), 4);
+const pskRaw = await hkdfSha256(secret, enc.encode(TETHER_SALT), enc.encode("softap-psk"), 12);
+const tetherSsid = "LD-" + hex(ssidRaw);
+const tetherPsk = hex(pskRaw);
+
 const vectors = {
   description:
     "LinuxDrop crypto test vectors. Go (linux) and Kotlin (android) MUST reproduce `expected` exactly. Backend does no crypto.",
@@ -69,6 +77,12 @@ const vectors = {
     roomId,
     encKey_hex: hex(encKey),
     ct_base64: b64(ct),
+    tether: {
+      salt: TETHER_SALT,
+      kBle_hex: hex(kBle),
+      ssid: tetherSsid,
+      psk: tetherPsk,
+    },
   },
 };
 

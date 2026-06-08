@@ -150,3 +150,27 @@ GET /ice                       → { "iceServers": [ {urls:"stun:…"}, {urls:"t
   2. binary chunks (~16 KiB, with backpressure)
   3. `{"t":"done"}` → receiver verifies size + SHA-256, saves to Downloads, notifies. `{"t":"err"}` aborts.
 - Receiving is **auto-accept + notify** (devices are already paired by the shared secret). No resume in v1.
+
+## 8. Tether over BLE (auto-tether)
+
+When the Linux box has no internet it wakes the phone over **BLE** (the relay is unreachable) to
+enable a Wi-Fi hotspot, then joins it. All values derive from the shared secret (HKDF-SHA256,
+single-block, `salt="linuxdrop/tether/v1"`):
+
+- `K_ble = HKDF(secret, "linuxdrop/tether/v1", info="ble-aead-key", 32)` — AES-256-GCM key for BLE frames
+- `ssid  = "LD-" + hex(HKDF(secret, …, "softap-ssid", 4))` — e.g. `LD-2f0d61cb`
+- `psk   = hex(HKDF(secret, …, "softap-psk", 12))` — 24 hex chars (WPA2 passphrase)
+
+**GATT service** `e3a9f5c0-1d2b-4e3a-9c8d-0a1b2c3d4e5f`:
+- `nonce`  (read, …c1) — current 16-byte per-connection session nonce
+- `command`(write, …c2) — an AEAD frame
+- `status` (notify, …c3) — an AEAD frame pushed after each command (CCCD `2902`)
+
+**Frames** are `sealBlob(K_ble)` = `iv(12) || ciphertext || tag(16)` (random IV each):
+- command plaintext = `sessionNonce(16) || seq(4, big-endian) || opcode(1)` — `ENABLE=1`, `DISABLE=2`, `KEEPALIVE=3`
+- status  plaintext = `opcode(1) || resultCode(1)` (resultCode = a `TetherResult` value, 0 = OK)
+
+The phone issues a fresh `sessionNonce` per BLE connection. A command is accepted iff (a) the GCM
+tag verifies under `K_ble`, (b) the embedded nonce equals the connection's current one, and (c) `seq`
+strictly increases (replay protection). Unbonded GATT — the AEAD is the trust boundary, like the rest
+of the protocol. Cross-language vectors: `proto/crypto-test-vectors.json` → `expected.tether`.

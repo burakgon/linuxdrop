@@ -42,6 +42,10 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.linuxdrop.app.BuildConfig
+import com.linuxdrop.app.shizuku.ShizukuTether
 
 @Composable
 fun SettingsScreen(
@@ -138,6 +142,33 @@ fun SettingsScreen(
                 ShizukuSetupCard(ui, onGrant = onGrantShizuku)
             } else {
                 Text("Shizuku: granted ✓", style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (BuildConfig.DEBUG) {
+                HorizontalDivider()
+                val ctx = LocalContext.current
+                val tether = remember { ShizukuTether(ctx) }
+                Text("Debug: tether spike", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = {
+                        tether.enable("LD-spike", "spikepass12") { code ->
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                Toast.makeText(ctx, "tether enable = $code", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Spike: hotspot ON") }
+                Button(
+                    onClick = {
+                        tether.disable { code ->
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                Toast.makeText(ctx, "tether disable = $code", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Spike: hotspot OFF") }
             }
 
             Spacer(Modifier.width(1.dp))

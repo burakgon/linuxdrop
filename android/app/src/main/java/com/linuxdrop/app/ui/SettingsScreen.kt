@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import com.linuxdrop.app.BuildConfig
-import com.linuxdrop.app.shizuku.ShizukuTether
+import com.linuxdrop.app.tether.TetherController
 
 @Composable
 fun SettingsScreen(
@@ -147,7 +147,7 @@ fun SettingsScreen(
             if (BuildConfig.DEBUG) {
                 HorizontalDivider()
                 val ctx = LocalContext.current
-                val tether = remember { ShizukuTether(ctx) }
+                val tether = remember { TetherController(ctx) }
                 Text("Debug: tether spike", style = MaterialTheme.typography.titleMedium)
                 Button(
                     onClick = {

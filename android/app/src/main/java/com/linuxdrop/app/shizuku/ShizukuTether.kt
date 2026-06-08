@@ -6,6 +6,7 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
+import com.linuxdrop.app.tether.TetherResult
 import rikka.shizuku.Shizuku
 
 /** App-process side: binds the shell-uid [TetherUserService] and calls hotspot on/off. */
@@ -40,10 +41,22 @@ class ShizukuTether(context: Context) {
 
     /** Enable the hotspot; runs [onResult] with a TETHER_* code once the service answers. */
     fun enable(ssid: String, passphrase: String, onResult: (Int) -> Unit) =
-        withService { onResult(runCatching { it.enableHotspot(ssid, passphrase) }.getOrDefault(TETHER_ERR_REFLECTION)) }
+        withService { onResult(runCatching { it.enableHotspot(ssid, passphrase) }.getOrDefault(TetherResult.ERR_REFLECTION)) }
 
     fun disable(onResult: (Int) -> Unit) =
-        withService { onResult(runCatching { it.disableHotspot() }.getOrDefault(TETHER_ERR_REFLECTION)) }
+        withService { onResult(runCatching { it.disableHotspot() }.getOrDefault(TetherResult.ERR_REFLECTION)) }
+
+    /** Tell the phone the laptop still wants the hotspot up (resets the safety auto-off timer). */
+    fun keepAlive() = runCatching { service?.keepAlive() }
+
+    /** Register a callback fired when the phone auto-disables the hotspot (safety window elapsed). */
+    fun setOnAutoOff(onAutoOff: (Int) -> Unit) = withService { svc ->
+        runCatching {
+            svc.setCallback(object : ITetherCallback.Stub() {
+                override fun onAutoOff(reason: Int) = onAutoOff(reason)
+            })
+        }
+    }
 
     private fun withService(block: (ITetherUserService) -> Unit) {
         val svc = service

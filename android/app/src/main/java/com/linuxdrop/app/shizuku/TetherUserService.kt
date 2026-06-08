@@ -4,15 +4,9 @@ import android.content.Context
 import android.net.IIntResultListener
 import android.os.IBinder
 import android.util.Log
+import com.linuxdrop.app.tether.TetherResult
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-
-// Task-1 spike result codes. These move to com.linuxdrop.app.tether.TetherResult in Task 2.
-const val TETHER_OK = 0
-const val TETHER_ERR_NO_CONTEXT = 1
-const val TETHER_ERR_REFLECTION = 2
-const val TETHER_ERR_TETHER_FAILED = 3
-const val TETHER_ERR_TIMEOUT = 4
 
 /**
  * Runs INSIDE the process Shizuku starts as the shell user (uid 2000). The shell
@@ -27,36 +21,59 @@ const val TETHER_ERR_TIMEOUT = 4
 class TetherUserService() : ITetherUserService.Stub() {
 
     @Volatile private var ctx: Context? = null
+    @Volatile private var callback: ITetherCallback? = null
+    @Volatile private var lastKeepAlive = 0L
+    @Volatile private var hotspotOn = false
+    private val watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
 
     // Shizuku instantiates with a Context; keep it for getSystemService().
     constructor(context: Context) : this() {
         ctx = context
+        // Safety net: if the laptop stops sending keepalives (walked away / BLE lost / app died),
+        // turn the hotspot off ourselves so it can never be stranded on, draining data/battery.
+        watchdog.scheduleWithFixedDelay({
+            try {
+                if (hotspotOn && System.currentTimeMillis() - lastKeepAlive > SAFETY_WINDOW_MS) {
+                    Log.w(TAG, "safety auto-off: no keepalive within ${SAFETY_WINDOW_MS}ms")
+                    disableHotspot()
+                    runCatching { callback?.onAutoOff(1) }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "watchdog", t)
+            }
+        }, WATCH_PERIOD_MS, WATCH_PERIOD_MS, TimeUnit.MILLISECONDS)
     }
 
     override fun enableHotspot(ssid: String, passphrase: String): Int {
-        val context = ctx ?: return TETHER_ERR_NO_CONTEXT
+        val context = ctx ?: return TetherResult.ERR_NO_CONTEXT
         return try {
             applySoftApConfig(ssid, passphrase)
-            startWifiTethering(context)
+            val r = startWifiTethering(context)
+            if (r == TetherResult.OK) {
+                lastKeepAlive = System.currentTimeMillis()
+                hotspotOn = true
+            }
+            r
         } catch (t: Throwable) {
             Log.e(TAG, "enableHotspot reflection failed", t)
-            TETHER_ERR_REFLECTION
+            TetherResult.ERR_REFLECTION
         }
     }
 
     override fun disableHotspot(): Int {
-        val context = ctx ?: return TETHER_ERR_NO_CONTEXT
+        val context = ctx ?: return TetherResult.ERR_NO_CONTEXT
         return try {
-            val connector = getConnector(context) ?: return TETHER_ERR_REFLECTION
+            val connector = getConnector(context) ?: return TetherResult.ERR_REFLECTION
             val tetheringWifi = Class.forName("android.net.TetheringManager").getField("TETHERING_WIFI").getInt(null)
             val listener = resultListener { code -> Log.i(TAG, "stopTethering onResult=$code") }
             val m = connector.javaClass.methods.first { it.name == "stopTethering" }
             m.invoke(connector, *argsByType(m, tetherType = tetheringWifi, listener = listener))
+            hotspotOn = false
             Log.i(TAG, "stopTethering(WIFI) invoked (connector, pkg=$SHELL_PKG)")
-            TETHER_OK
+            TetherResult.OK
         } catch (t: Throwable) {
             Log.e(TAG, "disableHotspot reflection failed", t)
-            TETHER_ERR_REFLECTION
+            TetherResult.ERR_REFLECTION
         }
     }
 
@@ -130,7 +147,7 @@ class TetherUserService() : ITetherUserService.Stub() {
      *  service's permission/package check (uid 2000 + "com.android.shell") passes. Going through the
      *  high-level TetheringManager attaches the app package and returns error 14 (no-change-permission). */
     private fun startWifiTethering(context: Context): Int {
-        val connector = getConnector(context) ?: return TETHER_ERR_REFLECTION
+        val connector = getConnector(context) ?: return TetherResult.ERR_REFLECTION
         val tetheringWifi = Class.forName("android.net.TetheringManager").getField("TETHERING_WIFI").getInt(null)
 
         // Build a TetheringRequest, then extract the parcel the connector expects.
@@ -141,9 +158,9 @@ class TetherUserService() : ITetherUserService.Stub() {
             .getOrElse { request.javaClass.getDeclaredMethod("getParcel").apply { isAccessible = true }.invoke(request) }
 
         val latch = CountDownLatch(1)
-        val result = intArrayOf(TETHER_ERR_TIMEOUT)
+        val result = intArrayOf(TetherResult.ERR_TIMEOUT)
         val listener = resultListener { code ->
-            result[0] = if (code == 0) TETHER_OK else TETHER_ERR_TETHER_FAILED
+            result[0] = if (code == 0) TetherResult.OK else TetherResult.ERR_TETHER_FAILED
             if (code != 0) Log.w(TAG, "tethering onResult error=$code")
             latch.countDown()
         }
@@ -154,12 +171,23 @@ class TetherUserService() : ITetherUserService.Stub() {
         return result[0]
     }
 
+    override fun keepAlive() {
+        lastKeepAlive = System.currentTimeMillis()
+    }
+
+    override fun setCallback(cb: ITetherCallback?) {
+        callback = cb
+    }
+
     override fun destroy() {
+        runCatching { watchdog.shutdownNow() }
         System.exit(0)
     }
 
     companion object {
         private const val TAG = "linuxDropTether"
         private const val SHELL_PKG = "com.android.shell"
+        private const val SAFETY_WINDOW_MS = 180_000L  // no keepalive for this long → safety auto-off
+        private const val WATCH_PERIOD_MS = 30_000L
     }
 }

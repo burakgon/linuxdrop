@@ -21,6 +21,7 @@ import com.linuxdrop.app.net.BlobClient
 import com.linuxdrop.app.net.P2pManager
 import com.linuxdrop.app.net.WsClient
 import com.linuxdrop.app.shizuku.ShizukuClipboard
+import com.linuxdrop.app.tether.TetherGattServer
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -37,6 +38,7 @@ class SyncForegroundService : Service() {
     private lateinit var shizuku: ShizukuClipboard
     private lateinit var blob: BlobClient
     private var p2p: P2pManager? = null
+    private var tetherGatt: TetherGattServer? = null
     private lateinit var dev: String
     private lateinit var room: String
 
@@ -123,6 +125,11 @@ class SyncForegroundService : Service() {
             },
         )
 
+        // BLE tether wake: lets a laptop with no internet ask us to enable the hotspot.
+        tetherGatt = TetherGattServer(this, bytes, com.linuxdrop.app.tether.TetherController(this)).also {
+            runCatching { it.start() }
+        }
+
         return START_STICKY
     }
 
@@ -154,6 +161,7 @@ class SyncForegroundService : Service() {
         runCatching { ws.stop() }
         runCatching { shizuku.unbind() }
         runCatching { p2p?.close() }
+        runCatching { tetherGatt?.stop() }
         runCatching { io.shutdownNow() }
         SyncStatus.setRunning(false)
         super.onDestroy()

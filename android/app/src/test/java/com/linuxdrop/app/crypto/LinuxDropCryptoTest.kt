@@ -22,7 +22,7 @@ class LinuxDropCryptoTest {
     @Test
     fun deriveKey_matchesVector() {
         assertEquals(
-            "12cbf6eb91c325c287b3ebbca8e7335b7fbfe4fe928067f3b4fadfce99abd58b",
+            "f9a208b7e84bcc359289bac40a8fd0ac24536741a3148ff0a82e2a966f2aaac6",
             hex.formatHex(LinuxDropCrypto.deriveKey(secret)),
         )
     }
@@ -30,7 +30,7 @@ class LinuxDropCryptoTest {
     @Test
     fun seal_matchesVector() {
         val ct = LinuxDropCrypto.fromSecret(secret).sealForTest(iv, plaintext)
-        assertEquals("FUS4yaGo5H/3LtuORl3XfhmiIjn2x1QOtZtg/W445IfITLCLHIYaIWezKj1OrlNycD7Qh121JDbHy9nm", ct)
+        assertEquals("rcyxHkF6X/tznsjTgrMo8+NZZ4PscfZm6O7UTon0boegGXBN72LZB53aAKukhUc0lwszdq/HoIf6", ct)
     }
 
     @Test
@@ -38,5 +38,19 @@ class LinuxDropCryptoTest {
         val c = LinuxDropCrypto.fromSecret(secret)
         val (ivB64, ct) = c.seal(plaintext)
         assertEquals(String(plaintext), String(c.open(ivB64, ct)))
+    }
+
+    @Test
+    fun tetherBleKey_matchesVector() {
+        assertEquals(
+            "793b6d391031856ed02410d54050c062f02ec2a696c4b3b615e22ff56f130f99",
+            hex.formatHex(LinuxDropCrypto.tetherBleKey(secret)),
+        )
+    }
+
+    @Test
+    fun tetherSsidAndPsk_matchVectors() {
+        assertEquals("LD-2f0d61cb", LinuxDropCrypto.tetherSsid(secret))
+        assertEquals("9ddc1c62b4f9a1da71d45bab", LinuxDropCrypto.tetherPsk(secret))
     }
 }

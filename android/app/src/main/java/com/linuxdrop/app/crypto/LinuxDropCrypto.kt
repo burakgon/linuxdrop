@@ -57,10 +57,14 @@ class LinuxDropCrypto private constructor(private val key: ByteArray) {
     companion object {
         private const val ENC_SALT = "linuxdrop/enc/v1"
         private const val ENC_INFO = "aes-256-gcm"
+        private const val TETHER_SALT = "linuxdrop/tether/v1"
         private const val ROOM_ID_LEN = 32
         private val RNG = SecureRandom()
 
         fun fromSecret(secret: ByteArray): LinuxDropCrypto = LinuxDropCrypto(deriveKey(secret))
+
+        /** A cipher keyed directly by a raw 32-byte key (e.g. K_ble), bypassing secret→encKey. */
+        fun fromRawKey(key: ByteArray): LinuxDropCrypto = LinuxDropCrypto(key)
 
         /** roomId = base64url(SHA-256(secret))[:32], no padding. */
         fun roomId(secret: ByteArray): String {
@@ -78,5 +82,27 @@ class LinuxDropCrypto private constructor(private val key: ByteArray) {
             mac.update(0x01.toByte()) // expand; len<=32 → single block
             return mac.doFinal().copyOf(32)
         }
+
+        /** HKDF-SHA256, single-block expand (len<=32). RFC 5869. Generalizes [deriveKey]. */
+        private fun hkdf(secret: ByteArray, salt: String, info: String, len: Int): ByteArray {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(salt.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            val prk = mac.doFinal(secret)
+            mac.init(SecretKeySpec(prk, "HmacSHA256"))
+            mac.update(info.toByteArray(Charsets.UTF_8))
+            mac.update(0x01.toByte())
+            return mac.doFinal().copyOf(len)
+        }
+
+        /** AES-256-GCM key for the BLE tether frames (proto/PROTOCOL.md §8). */
+        fun tetherBleKey(secret: ByteArray): ByteArray = hkdf(secret, TETHER_SALT, "ble-aead-key", 32)
+
+        /** Stable hotspot SSID derived from the secret: "LD-" + 8 hex chars. */
+        fun tetherSsid(secret: ByteArray): String =
+            "LD-" + hkdf(secret, TETHER_SALT, "softap-ssid", 4).joinToString("") { "%02x".format(it) }
+
+        /** Stable WPA2 passphrase derived from the secret: 24 hex chars. */
+        fun tetherPsk(secret: ByteArray): String =
+            hkdf(secret, TETHER_SALT, "softap-psk", 12).joinToString("") { "%02x".format(it) }
     }
 }

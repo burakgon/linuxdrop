@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Shizuku.addRequestPermissionResultListener(shizukuListener)
         maybeRequestNotifications()
+        maybeRequestBtPermissions()
         setContent {
             LinuxDropTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -88,5 +89,15 @@ class MainActivity : ComponentActivity() {
         ) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4002)
         }
+    }
+
+    /** BLE advertise/connect — needed so the phone can be woken over BLE to enable the hotspot (Android 12+). */
+    private fun maybeRequestBtPermissions() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val needed = arrayOf(
+            Manifest.permission.BLUETOOTH_ADVERTISE,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ).filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) ActivityCompat.requestPermissions(this, needed.toTypedArray(), 4003)
     }
 }

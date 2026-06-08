@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- connectedDevice FGS requires at least one connectivity permission -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- BLE: let a laptop with no internet wake the phone to enable its hotspot (auto-tether) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Ask the OS not to kill the sync service (battery optimization exemption) -->

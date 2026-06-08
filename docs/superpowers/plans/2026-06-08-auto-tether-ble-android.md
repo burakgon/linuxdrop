@@ -600,6 +600,11 @@ git commit -m "feat(tether): start the BLE tether GATT server with the sync serv
 
 ## Task 7: On-device smoke test (generic BLE central)
 
+> **STATUS (2026-06-08): Tasks 1–6 done & committed; unit tests green in the hermetic container
+> (`testDebugUnitTest`), Tasks 4–6 compile. This Task 7 (on-device) is DEFERRED until the test
+> phone is back — see task "Cihaz testleri (telefon dönünce)".**
+
+
 The full end-to-end (laptop joins the hotspot) is Plan 3. Here, verify the phone advertises, authenticates, and toggles the hotspot when driven by **any** BLE central, using a phone-side log check plus a generic scanner.
 
 **Files:** none (manual verification).

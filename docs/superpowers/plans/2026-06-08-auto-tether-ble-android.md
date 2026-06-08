@@ -600,9 +600,12 @@ git commit -m "feat(tether): start the BLE tether GATT server with the sync serv
 
 ## Task 7: On-device smoke test (generic BLE central)
 
-> **STATUS (2026-06-08): Tasks 1–6 done & committed; unit tests green in the hermetic container
-> (`testDebugUnitTest`), Tasks 4–6 compile. This Task 7 (on-device) is DEFERRED until the test
-> phone is back — see task "Cihaz testleri (telefon dönünce)".**
+> **STATUS (2026-06-08): Tasks 1–6 done & committed; unit tests green. Task 7 Steps 1–2 VERIFIED
+> on-device (OnePlus CPH2765) via a Linux BlueZ central (`bleak`, crypto self-test PASS): the
+> service advertises (`e3a9f5c0…` found at 50:AF:E3:D0:4C:E4), and a 40-byte garbage write to
+> `command` is rejected — phone logs `rejected command (auth/replay)`, no hotspot iface (`wlan2`).
+> Step 3 (valid sealed ENABLE → hotspot up) + the Plan-1 safety auto-off remain — they need the
+> paired secret and are exercised by the Plan-3 Linux central.**
 
 
 The full end-to-end (laptop joins the hotspot) is Plan 3. Here, verify the phone advertises, authenticates, and toggles the hotspot when driven by **any** BLE central, using a phone-side log check plus a generic scanner.

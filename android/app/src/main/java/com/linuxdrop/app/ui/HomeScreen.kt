@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -62,6 +64,7 @@ fun HomeScreen(
     onGrantShizuku: () -> Unit,
     onHistory: () -> Unit,
     onSendFile: (dev: String) -> Unit,
+    onToggleTether: (Boolean) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -86,6 +89,7 @@ fun HomeScreen(
             if (!ui.shizukuReady) ShizukuSetupCard(ui, onGrant = onGrantShizuku)
             if (!ui.batteryUnrestricted) BatteryCard()
             DevicesCard(ui, onSendFile)
+            TetherCard(ui, onToggleTether)
             Button(onClick = onAddDevice, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.QrCode2, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -184,6 +188,41 @@ private fun DevicesCard(ui: UiModel, onSendFile: (String) -> Unit) {
                 }
                 Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+}
+
+@Composable
+private fun TetherCard(ui: UiModel, onToggle: (Boolean) -> Unit) {
+    val (statusText, sharing) = when {
+        !ui.tetherEnabled -> "Off" to false
+        ui.sync.tetherSharing -> "Sharing now — hotspot ${ui.sync.tetherSsid}" to true
+        ui.sync.running -> "Ready · listening over Bluetooth" to false
+        else -> "Turns on when sync is running" to false
+    }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(Icons.Default.WifiTethering, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f)) {
+                    Text("Phone internet sharing", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (sharing) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = ui.tetherEnabled, onCheckedChange = onToggle)
+            }
+            Text(
+                "When your computer has no internet, it wakes this phone over Bluetooth and turns on the hotspot " +
+                    "to share your mobile data — automatically, no tapping needed.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

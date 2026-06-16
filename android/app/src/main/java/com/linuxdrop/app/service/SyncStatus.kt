@@ -26,6 +26,8 @@ object SyncStatus {
         val lastSyncAt: Long = 0L,         // last successful sync (epoch ms)
         val lastSyncOutgoing: Boolean = false, // true = we sent, false = we received
         val lastSyncChars: Int = 0,
+        val tetherSharing: Boolean = false,    // hotspot currently ON because a computer asked
+        val tetherSsid: String = "",           // the hotspot SSID while sharing
     )
 
     private val _state = MutableStateFlow(State())
@@ -45,5 +47,10 @@ object SyncStatus {
 
     fun setLastSync(outgoing: Boolean, chars: Int) = _state.update {
         it.copy(lastSyncAt = System.currentTimeMillis(), lastSyncOutgoing = outgoing, lastSyncChars = chars)
+    }
+
+    /** The BLE tether layer reports whether the phone is actively sharing its internet right now. */
+    fun setTether(sharing: Boolean, ssid: String) = _state.update {
+        it.copy(tetherSharing = sharing, tetherSsid = ssid)
     }
 }

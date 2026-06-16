@@ -23,6 +23,7 @@ data class UiModel(
     val shizukuRunning: Boolean = false,
     val shizukuGranted: Boolean = false,
     val batteryUnrestricted: Boolean = true,
+    val tetherEnabled: Boolean = true,
     val sync: SyncStatus.State = SyncStatus.State(),
 ) {
     val shizukuReady: Boolean get() = shizukuRunning && shizukuGranted
@@ -62,6 +63,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         shizukuRunning = shizuku.shizukuAvailable(),
         shizukuGranted = shizuku.permissionGranted(),
         batteryUnrestricted = isBatteryUnrestricted(),
+        tetherEnabled = secret.tetherEnabled,
         sync = SyncStatus.state.value,
     )
 
@@ -87,6 +89,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setRelay(url: String) {
         secret.relayUrl = url
+        refresh(); restartIfRunning()
+    }
+
+    /** Enable/disable letting a paired computer wake this phone (over BLE) to share its internet. */
+    fun setTetherEnabled(on: Boolean) {
+        secret.tetherEnabled = on
         refresh(); restartIfRunning()
     }
 

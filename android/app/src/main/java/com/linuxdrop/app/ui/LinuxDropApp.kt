@@ -99,6 +99,7 @@ fun LinuxDropApp(vm: MainViewModel) {
             onGrantShizuku = grantShizuku,
             onHistory = { screen = Screen.HISTORY },
             onSendFile = sendFileTo,
+            onToggleTether = { vm.setTetherEnabled(it) },
         )
     }
 

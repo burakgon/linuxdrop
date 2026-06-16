@@ -51,6 +51,11 @@ class Secret(context: Context) {
             prefs.edit().putString(KEY_DEV, it).apply()
         }
 
+    /** Whether this phone may share its internet (over the BLE tether) when a paired computer asks. */
+    var tetherEnabled: Boolean
+        get() = prefs.getBoolean(KEY_TETHER, true)
+        set(v) = prefs.edit().putBoolean(KEY_TETHER, v).apply()
+
     fun secretBytes(): ByteArray? = secretHex?.let { hexToBytes(it) }
 
     /** Configured once both a relay (self-hosted server) and a network key exist. */
@@ -96,6 +101,7 @@ class Secret(context: Context) {
         private const val KEY_SECRET = "secret"
         private const val KEY_DEV = "dev"
         private const val KEY_NAME = "name"
+        private const val KEY_TETHER = "tether_enabled"
 
         fun newSecretHex(): String = bytesToHex(ByteArray(32).also { SecureRandom().nextBytes(it) })
 

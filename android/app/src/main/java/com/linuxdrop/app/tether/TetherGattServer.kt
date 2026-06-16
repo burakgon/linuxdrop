@@ -16,6 +16,7 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import com.linuxdrop.app.crypto.LinuxDropCrypto
+import com.linuxdrop.app.service.SyncStatus
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -121,8 +122,14 @@ class TetherGattServer(
             if (ch.uuid != UUID_COMMAND) return
             val cmd = verifier?.open(value) ?: run { Log.w(TAG, "rejected command (auth/replay)"); return }
             when (cmd.opcode) {
-                TetherFrame.OP_ENABLE -> controller.enable(ssid, psk) { code -> notifyStatus(device, cmd.opcode, code) }
-                TetherFrame.OP_DISABLE -> controller.disable { code -> notifyStatus(device, cmd.opcode, code) }
+                TetherFrame.OP_ENABLE -> controller.enable(ssid, psk) { code ->
+                    if (code == TetherResult.OK) SyncStatus.setTether(true, ssid)
+                    notifyStatus(device, cmd.opcode, code)
+                }
+                TetherFrame.OP_DISABLE -> controller.disable { code ->
+                    SyncStatus.setTether(false, "")
+                    notifyStatus(device, cmd.opcode, code)
+                }
                 TetherFrame.OP_KEEPALIVE -> { controller.keepAlive(); notifyStatus(device, cmd.opcode, TetherResult.OK) }
                 else -> Log.w(TAG, "unknown opcode ${cmd.opcode}")
             }

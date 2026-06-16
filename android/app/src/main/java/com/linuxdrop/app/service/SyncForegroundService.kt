@@ -125,9 +125,12 @@ class SyncForegroundService : Service() {
             },
         )
 
-        // BLE tether wake: lets a laptop with no internet ask us to enable the hotspot.
-        tetherGatt = TetherGattServer(this, bytes, com.linuxdrop.app.tether.TetherController(this)).also {
-            runCatching { it.start() }
+        // BLE tether wake: lets a paired computer with no internet ask us to enable the hotspot.
+        // Only armed when the user has the feature on (Home → "Phone internet sharing").
+        if (secret.tetherEnabled) {
+            val tetherCtrl = com.linuxdrop.app.tether.TetherController(this)
+            tetherCtrl.setOnAutoOff { SyncStatus.setTether(false, "") }
+            tetherGatt = TetherGattServer(this, bytes, tetherCtrl).also { runCatching { it.start() } }
         }
 
         return START_STICKY

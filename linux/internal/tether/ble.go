@@ -23,9 +23,10 @@ type BLECentral struct{ key []byte }
 
 func NewBLECentral(kBle []byte) *BLECentral { return &BLECentral{key: kBle} }
 
-// Command connects to the phone (scanning if needed), sends one opcode, and returns the status
-// result code. The phone resets its session nonce per connection, so we read a fresh nonce each call.
-func (b *BLECentral) Command(opcode byte, seq uint32) (result byte, err error) {
+// Command connects to the phone (scanning if needed) and sends one opcode, retrying the whole
+// connect→read→write sequence a few times — the Intel PCIe BLE link drops intermittently, so a
+// single attempt is unreliable even though the protocol is sound.
+func (b *BLECentral) Command(opcode byte, seq uint32) (byte, error) {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return 0, err
@@ -34,6 +35,21 @@ func (b *BLECentral) Command(opcode byte, seq uint32) (result byte, err error) {
 	if err != nil {
 		return 0, err
 	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		res, err := b.commandOnce(conn, devPath, opcode, seq)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+		time.Sleep(time.Second)
+	}
+	return 0, lastErr
+}
+
+// commandOnce runs one connect→read-nonce→write attempt. The phone resets its session nonce per
+// connection, so reading a fresh nonce each attempt is correct.
+func (b *BLECentral) commandOnce(conn *dbus.Conn, devPath dbus.ObjectPath, opcode byte, seq uint32) (byte, error) {
 	dev := conn.Object(bluez, devPath)
 	if err := b.connectResolved(conn, dev, devPath); err != nil {
 		return 0, err

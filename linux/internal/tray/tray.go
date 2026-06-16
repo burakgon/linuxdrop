@@ -11,20 +11,24 @@ import (
 )
 
 type Callbacks struct {
-	OnQuit        func()
-	OnTogglePause func(paused bool)
-	OnShowQR      func()
-	OnSendFile    func()
-	OnOpenFolder  func()
+	OnQuit         func()
+	OnTogglePause  func(paused bool)
+	OnToggleTether func(on bool)
+	OnShowQR       func()
+	OnSendFile     func()
+	OnOpenFolder   func()
 }
 
 type Tray struct {
-	cb         Callbacks
-	statusItem *systray.MenuItem
-	pauseItem  *systray.MenuItem
-	connected  atomic.Bool
-	paused     atomic.Bool
-	ready      atomic.Bool
+	cb           Callbacks
+	statusItem   *systray.MenuItem
+	pauseItem    *systray.MenuItem
+	tetherItem   *systray.MenuItem
+	connected    atomic.Bool
+	paused       atomic.Bool
+	ready        atomic.Bool
+	tetherOn     atomic.Bool
+	tetherDetail atomic.Value // string
 }
 
 func New(cb Callbacks) *Tray { return &Tray{cb: cb} }
@@ -36,6 +40,13 @@ func (t *Tray) Quit() { systray.Quit() }
 
 func (t *Tray) SetConnected(connected bool) {
 	t.connected.Store(connected)
+	t.refresh()
+}
+
+// SetTether updates the tether line ("on/off" + a one-line detail). Called by the orchestrator.
+func (t *Tray) SetTether(on bool, detail string) {
+	t.tetherOn.Store(on)
+	t.tetherDetail.Store(detail)
 	t.refresh()
 }
 
@@ -60,6 +71,7 @@ func (t *Tray) onReady() {
 	t.statusItem.Disable()
 	systray.AddSeparator()
 	t.pauseItem = systray.AddMenuItem("Pause", "Pause syncing")
+	t.tetherItem = systray.AddMenuItem("Phone internet: off", "Use the phone's hotspot when this box is offline")
 	systray.AddSeparator()
 	sendItem := systray.AddMenuItem("Send file…", "Send a file directly to a device")
 	openItem := systray.AddMenuItem("Open received files", "Open the Downloads folder")
@@ -78,6 +90,13 @@ func (t *Tray) onReady() {
 				t.paused.Store(p)
 				if t.cb.OnTogglePause != nil {
 					t.cb.OnTogglePause(p)
+				}
+				t.refresh()
+			case <-t.tetherItem.ClickedCh:
+				on := !t.tetherOn.Load()
+				t.tetherOn.Store(on)
+				if t.cb.OnToggleTether != nil {
+					go t.cb.OnToggleTether(on)
 				}
 				t.refresh()
 			case <-sendItem.ClickedCh:
@@ -105,18 +124,28 @@ func (t *Tray) refresh() {
 	if !t.ready.Load() || t.statusItem == nil {
 		return
 	}
-	status := "offline"
+	sym := "○ offline"
 	if t.connected.Load() {
-		status = "connected"
+		sym = "● connected"
 	}
 	if t.paused.Load() {
-		status = "paused"
+		sym = "⏸ paused"
 	}
-	t.statusItem.SetTitle("Status: " + status)
+	t.statusItem.SetTitle("Clipboard sync: " + sym)
 	if t.paused.Load() {
 		t.pauseItem.SetTitle("Resume")
 	} else {
 		t.pauseItem.SetTitle("Pause")
+	}
+	if t.tetherItem != nil {
+		label := "Phone internet: off"
+		if t.tetherOn.Load() {
+			label = "Phone internet: ON"
+		}
+		if d, _ := t.tetherDetail.Load().(string); d != "" {
+			label += " — " + d
+		}
+		t.tetherItem.SetTitle(label)
 	}
 	systray.SetIcon(iconPNG(t.connected.Load() && !t.paused.Load()))
 }

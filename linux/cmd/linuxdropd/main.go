@@ -204,6 +204,7 @@ func cmdRun(logger *log.Logger, args []string) {
 		return
 	}
 
+	tetherOrch := tether.NewOrchestrator(secret, logger)
 	tr = tray.New(tray.Callbacks{
 		OnQuit: func() { stop() },
 		OnTogglePause: func(p bool) {
@@ -212,6 +213,15 @@ func cmdRun(logger *log.Logger, args []string) {
 				logger.Println("paused")
 			} else {
 				logger.Println("resumed")
+			}
+		},
+		OnToggleTether: func(on bool) {
+			if on {
+				if err := tetherOrch.On(ctx); err != nil {
+					logger.Printf("tether on: %v", err)
+				}
+			} else {
+				tetherOrch.Off()
 			}
 		},
 		OnShowQR:     func() { showPairingQR(logger, secret, relay) },
@@ -234,12 +244,52 @@ func cmdRun(logger *log.Logger, args []string) {
 			}
 		},
 	})
+	tetherOrch.SetOnState(func(on bool, detail string) {
+		if tr != nil {
+			tr.SetTether(on, detail)
+		}
+	})
+	go autoTether(ctx, tetherOrch, logger)
 	go func() {
 		<-ctx.Done()
 		tr.Quit()
 	}()
 	tr.Run() // blocks until quit
 	logger.Println("shutting down")
+}
+
+// autoTether brings the hotspot up after a sustained offline window and tears it down once a
+// better (non-tether) network restores internet. Debounced to avoid flapping on brief blips.
+func autoTether(ctx context.Context, o *tether.Orchestrator, logger *log.Logger) {
+	offlineSince := time.Time{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+		online := tether.IsOnline(ctx)
+		switch {
+		case online && o.Tethered():
+			if !o.UsingTether() {
+				logger.Println("tether: better network back, tearing down")
+				o.Off()
+			}
+		case online:
+			offlineSince = time.Time{}
+		case !online && !o.Tethered():
+			if offlineSince.IsZero() {
+				offlineSince = time.Now()
+			}
+			if time.Since(offlineSince) >= 8*time.Second {
+				logger.Println("tether: offline ≥8s, bringing up phone hotspot")
+				if err := o.On(ctx); err != nil {
+					logger.Printf("tether auto: %v", err)
+					offlineSince = time.Now() // back off; retry next window
+				}
+			}
+		}
+	}
 }
 
 // cmdTether is the manual interface to the auto-tether: bring the phone hotspot up/down/status.

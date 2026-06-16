@@ -5,6 +5,7 @@ go 1.26.3
 require (
 	fyne.io/systray v1.12.1
 	github.com/coder/websocket v1.8.14
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/pion/webrtc/v4 v4.2.13
 	github.com/zalando/go-keyring v0.2.8
@@ -13,7 +14,6 @@ require (
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect

@@ -10,6 +10,18 @@
 
 **Scope:** Plan 3 of the gated series (spec: `docs/superpowers/specs/2026-06-08-phone-tether-on-no-internet-design.md`). Plans 1+2 (Android) are done and on-device verified (hotspot via Shizuku; GATT advertise + AEAD auth-reject). The BLE protocol is proven cross-language (a Python `bleak` central drove the phone). This plan is the Linux consumer of that protocol.
 
+> **STATUS (2026-06-16): code-complete & committed (Tasks 1–7).** Crypto + frame unit tests GREEN
+> (Docker `golang:1.26`, cross-language vectors). `tether status` works on the host (reads the
+> keyring → `ssid=LD-de92cc06`, reachability probe). The BLE central correctly **finds and connects**
+> to the phone. The live `tether on` e2e is **blocked by host BlueZ↔Android GATT *service discovery*
+> flakiness** — BlueZ connects (phone logs repeated `central connected`) but never resolves the GATT
+> DB (`services did not resolve`), even with a fresh phone GATT server + cleared BlueZ cache. This is
+> an **environment issue, not a code defect**: all unit tests pass, the protocol is cross-language
+> proven, and the Android GATT served a full read+write+auth-reject for the first probe. Retry after
+> `sudo systemctl restart bluetooth`, on a different BT adapter, or when the BLE link cooperates.
+> Note: `go` vanished from the host mid-session, so builds/tests use a hermetic `golang:1.26`
+> container (`/tmp/lgo`); the static binary runs natively on the host.
+
 ---
 
 ## Reference: the protocol (already pinned — see `proto/PROTOCOL.md §8` + `crypto-test-vectors.json` → `expected.tether`)

@@ -32,6 +32,7 @@ import (
 	"linuxdrop/linux/internal/crypto"
 	"linuxdrop/linux/internal/engine"
 	"linuxdrop/linux/internal/p2p"
+	"linuxdrop/linux/internal/tether"
 	"linuxdrop/linux/internal/tray"
 	"linuxdrop/linux/internal/wire"
 	"linuxdrop/linux/internal/ws"
@@ -53,8 +54,10 @@ func main() {
 			cmdSend(logger, args[1:])
 		case "run":
 			cmdRun(logger, args[1:])
+		case "tether":
+			cmdTether(logger, args[1:])
 		default:
-			logger.Fatalf("unknown command %q (use: gen-secret | pair | qr | send | run)", args[0])
+			logger.Fatalf("unknown command %q (use: gen-secret | pair | qr | send | run | tether)", args[0])
 		}
 		return
 	}
@@ -237,6 +240,43 @@ func cmdRun(logger *log.Logger, args []string) {
 	}()
 	tr.Run() // blocks until quit
 	logger.Println("shutting down")
+}
+
+// cmdTether is the manual interface to the auto-tether: bring the phone hotspot up/down/status.
+func cmdTether(logger *log.Logger, args []string) {
+	secret := loadSecretOrDie(logger)
+	o := tether.NewOrchestrator(secret, logger)
+	sub := "status"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "on":
+		if err := o.On(context.Background()); err != nil {
+			logger.Fatalf("tether on: %v", err)
+		}
+		fmt.Println("tether: up")
+	case "off":
+		o.Off()
+		fmt.Println("tether: off")
+	case "status":
+		fmt.Printf("ssid=%s online=%v\n", crypto.TetherSSID(secret), tether.IsOnline(context.Background()))
+	default:
+		logger.Fatalf("usage: linuxdropd tether [on|off|status]")
+	}
+}
+
+// loadSecretOrDie returns the paired secret (from the keyring) or exits.
+func loadSecretOrDie(logger *log.Logger) []byte {
+	hexS, _ := config.LoadSecret()
+	if hexS == "" {
+		logger.Fatal("not paired; run: linuxdropd pair <uri|hex> [relay]")
+	}
+	secret, err := config.DecodeSecretHex(hexS)
+	if err != nil {
+		logger.Fatalf("stored secret invalid: %v", err)
+	}
+	return secret
 }
 
 // buildHelloEnc seals this device's {name, platform} for the relay roster so

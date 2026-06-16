@@ -10,17 +10,25 @@
 
 **Scope:** Plan 3 of the gated series (spec: `docs/superpowers/specs/2026-06-08-phone-tether-on-no-internet-design.md`). Plans 1+2 (Android) are done and on-device verified (hotspot via Shizuku; GATT advertise + AEAD auth-reject). The BLE protocol is proven cross-language (a Python `bleak` central drove the phone). This plan is the Linux consumer of that protocol.
 
-> **STATUS (2026-06-16): code-complete & committed (Tasks 1–7).** Crypto + frame unit tests GREEN
-> (Docker `golang:1.26`, cross-language vectors). `tether status` works on the host (reads the
-> keyring → `ssid=LD-de92cc06`, reachability probe). The BLE central correctly **finds and connects**
-> to the phone. The live `tether on` e2e is **blocked by host BlueZ↔Android GATT *service discovery*
-> flakiness** — BlueZ connects (phone logs repeated `central connected`) but never resolves the GATT
-> DB (`services did not resolve`), even with a fresh phone GATT server + cleared BlueZ cache. This is
-> an **environment issue, not a code defect**: all unit tests pass, the protocol is cross-language
-> proven, and the Android GATT served a full read+write+auth-reject for the first probe. Retry after
-> `sudo systemctl restart bluetooth`, on a different BT adapter, or when the BLE link cooperates.
-> Note: `go` vanished from the host mid-session, so builds/tests use a hermetic `golang:1.26`
-> container (`/tmp/lgo`); the static binary runs natively on the host.
+> **STATUS (2026-06-16): code-complete, committed (Tasks 1–7), and the full e2e WORKED on-device.**
+> Crypto + frame unit tests GREEN (Docker `golang:1.26`, cross-language vectors). `tether on`
+> BLE-woke the phone → it enabled the hotspot → the laptop joined `LD-de92cc06` → online via the
+> phone (`tether status` reads the keyring secret, derives the SSID, probes reachability). The
+> **auto-trigger fires correctly** — with the home Wi-Fi down the daemon logged
+> `tether: offline ≥8s, bringing up phone hotspot`.
+>
+> The earlier "services did not resolve" turned out to be a **stale one-sided BLE bond**: the phone
+> sent an `SMP Security Request` and the host re-pairing failed with `Authentication Failure (0x05)`
+> because the host no longer had the keys. **Fix: forget the host on the phone** (Bluetooth settings)
+> — then plain unbonded GATT resolves and everything works.
+>
+> **Remaining caveat is hardware, not code:** this laptop's brand-new **Intel Panther Lake
+> `btintel_pcie`** Bluetooth is intermittently unstable for repeated BLE connections (btmon shows
+> `Disconnect: Remote/Local terminated`, *no* auth failure) — it worked end-to-end once, then
+> degraded under connection churn. Reliable repeated tether needs a mature BT adapter (a USB `btusb`
+> dongle) or a `btintel_pcie` kernel/firmware update. A 3× connect→command retry was added to lift
+> the success rate. Note: `go` vanished from the host mid-session → builds use a hermetic
+> `golang:1.26` container (`/tmp/lgo`); the static binary runs natively.
 
 ---
 

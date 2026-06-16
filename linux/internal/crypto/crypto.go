@@ -10,13 +10,15 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 )
 
 const (
-	encSalt   = "linuxdrop/enc/v1"
-	encInfo   = "aes-256-gcm"
-	roomIDLen = 32
+	encSalt    = "linuxdrop/enc/v1"
+	encInfo    = "aes-256-gcm"
+	tetherSalt = "linuxdrop/tether/v1"
+	roomIDLen  = 32
 )
 
 // RoomID = base64url(SHA-256(secret)) truncated to the first 32 chars (no padding).
@@ -29,6 +31,37 @@ func RoomID(secret []byte) string {
 // DeriveKey = HKDF-SHA256(ikm=secret, salt=encSalt, info=encInfo, len=32).
 func DeriveKey(secret []byte) ([]byte, error) {
 	return hkdf.Key(sha256.New, secret, []byte(encSalt), encInfo, 32)
+}
+
+// TetherBLEKey = HKDF(secret, salt="linuxdrop/tether/v1", info="ble-aead-key", 32). proto/PROTOCOL.md §8.
+func TetherBLEKey(secret []byte) []byte {
+	k, _ := hkdf.Key(sha256.New, secret, []byte(tetherSalt), "ble-aead-key", 32)
+	return k
+}
+
+// TetherSSID = "LD-" + hex(HKDF(secret, …, "softap-ssid", 4)).
+func TetherSSID(secret []byte) string {
+	b, _ := hkdf.Key(sha256.New, secret, []byte(tetherSalt), "softap-ssid", 4)
+	return "LD-" + hex.EncodeToString(b)
+}
+
+// TetherPSK = hex(HKDF(secret, …, "softap-psk", 12)).
+func TetherPSK(secret []byte) string {
+	b, _ := hkdf.Key(sha256.New, secret, []byte(tetherSalt), "softap-psk", 12)
+	return hex.EncodeToString(b)
+}
+
+// NewCipherWithKey builds a Cipher from a raw 32-byte key (e.g. K_ble), bypassing secret→encKey.
+func NewCipherWithKey(key []byte) (*Cipher, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	return &Cipher{aead: aead}, nil
 }
 
 // Cipher is an AES-256-GCM box derived from the shared secret.

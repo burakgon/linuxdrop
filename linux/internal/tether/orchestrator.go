@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"linuxdrop/linux/internal/crypto"
@@ -17,12 +18,19 @@ type Orchestrator struct {
 	wifi   *WifiConnector
 	secret []byte
 
-	mu       sync.Mutex
-	seq      uint32
-	tethered bool
-	stopKeep chan struct{}
-	onState  func(tethered bool, detail string)
+	mu          sync.Mutex
+	seq         uint32
+	tethered    bool
+	stopKeep    chan struct{}
+	onState     func(tethered bool, detail string)
+	autoEnabled atomic.Bool
 }
+
+// SetAutoEnabled arms/disarms the automatic offline→tether trigger. The caller persists it.
+func (o *Orchestrator) SetAutoEnabled(on bool) { o.autoEnabled.Store(on) }
+
+// AutoEnabled reports whether the automatic trigger is armed.
+func (o *Orchestrator) AutoEnabled() bool { return o.autoEnabled.Load() }
 
 func NewOrchestrator(secret []byte, logger *log.Logger) *Orchestrator {
 	return &Orchestrator{

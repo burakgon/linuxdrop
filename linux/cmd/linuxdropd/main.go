@@ -205,6 +205,7 @@ func cmdRun(logger *log.Logger, args []string) {
 	}
 
 	tetherOrch := tether.NewOrchestrator(secret, logger)
+	tetherOrch.SetAutoEnabled(cfg.AutoTether)
 	tr = tray.New(tray.Callbacks{
 		OnQuit: func() { stop() },
 		OnTogglePause: func(p bool) {
@@ -216,9 +217,15 @@ func cmdRun(logger *log.Logger, args []string) {
 			}
 		},
 		OnToggleTether: func(on bool) {
+			cfg.AutoTether = on
+			_ = cfg.Save()
+			tetherOrch.SetAutoEnabled(on)
 			if on {
-				if err := tetherOrch.On(ctx); err != nil {
-					logger.Printf("tether on: %v", err)
+				// Arm the auto-trigger; if we're offline right now, bring it up immediately.
+				if !tether.IsOnline(ctx) {
+					if err := tetherOrch.On(ctx); err != nil {
+						logger.Printf("tether on: %v", err)
+					}
 				}
 			} else {
 				tetherOrch.Off()
@@ -244,11 +251,12 @@ func cmdRun(logger *log.Logger, args []string) {
 			}
 		},
 	})
-	tetherOrch.SetOnState(func(on bool, detail string) {
+	tetherOrch.SetOnState(func(_ bool, detail string) {
 		if tr != nil {
-			tr.SetTether(on, detail)
+			tr.SetTetherDetail(detail)
 		}
 	})
+	tr.SetTetherEnabled(cfg.AutoTether)
 	go autoTether(ctx, tetherOrch, logger)
 	go func() {
 		<-ctx.Done()
@@ -267,6 +275,10 @@ func autoTether(ctx context.Context, o *tether.Orchestrator, logger *log.Logger)
 		case <-ctx.Done():
 			return
 		case <-time.After(5 * time.Second):
+		}
+		if !o.AutoEnabled() {
+			offlineSince = time.Time{} // disarmed: don't probe or try to reach the phone
+			continue
 		}
 		online := tether.IsOnline(ctx)
 		switch {
@@ -310,9 +322,17 @@ func cmdTether(logger *log.Logger, args []string) {
 		o.Off()
 		fmt.Println("tether: off")
 	case "status":
-		fmt.Printf("ssid=%s online=%v\n", crypto.TetherSSID(secret), tether.IsOnline(context.Background()))
+		cfg, _ := config.Load()
+		fmt.Printf("auto=%v ssid=%s online=%v\n", cfg.AutoTether, crypto.TetherSSID(secret), tether.IsOnline(context.Background()))
+	case "auto":
+		cfg, _ := config.Load()
+		cfg.AutoTether = !(len(args) > 1 && args[1] == "off")
+		if err := cfg.Save(); err != nil {
+			logger.Fatalf("save: %v", err)
+		}
+		fmt.Printf("auto-tether: %v (the tray applies it live; CLI takes effect on next daemon start)\n", cfg.AutoTether)
 	default:
-		logger.Fatalf("usage: linuxdropd tether [on|off|status]")
+		logger.Fatalf("usage: linuxdropd tether [on|off|status|auto on|auto off]")
 	}
 }
 

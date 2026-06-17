@@ -16,6 +16,9 @@ type Config struct {
 	RelayURL   string `json:"relay_url"`
 	DeviceID   string `json:"device_id"`
 	DeviceName string `json:"device_name"`
+	// AutoTether: when offline, auto-wake the phone over BLE to share its internet. Off by default
+	// so the box doesn't keep trying to reach the phone; the user arms it from the tray.
+	AutoTether bool `json:"auto_tether"`
 }
 
 // Dir returns (and creates) $XDG_CONFIG_HOME/linuxdrop.

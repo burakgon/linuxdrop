@@ -43,10 +43,15 @@ func (t *Tray) SetConnected(connected bool) {
 	t.refresh()
 }
 
-// SetTether updates the tether line ("on/off" + a one-line detail). Called by the orchestrator.
-func (t *Tray) SetTether(on bool, detail string) {
-	t.tetherOn.Store(on)
+// SetTetherDetail updates the tether status line (sharing/listening/…) from the orchestrator.
+func (t *Tray) SetTetherDetail(detail string) {
 	t.tetherDetail.Store(detail)
+	t.refresh()
+}
+
+// SetTetherEnabled reflects the persisted auto-tether master switch in the toggle (init + after a click).
+func (t *Tray) SetTetherEnabled(on bool) {
+	t.tetherOn.Store(on)
 	t.refresh()
 }
 
@@ -140,7 +145,7 @@ func (t *Tray) refresh() {
 	if t.tetherItem != nil {
 		label := "Phone internet: off"
 		if t.tetherOn.Load() {
-			label = "Phone internet: ON"
+			label = "Phone internet: Auto"
 		}
 		if d, _ := t.tetherDetail.Load().(string); d != "" {
 			label += " — " + d

@@ -12,8 +12,8 @@ android {
         applicationId = "com.linuxdrop.app"
         minSdk = 29          // Android 10 — the version where background clipboard was locked down
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.4.1"
 
         // WebRTC ships native .so per ABI; ship only the ABIs real phones use to
         // keep the APK from ballooning (drops x86/x86_64 emulator builds).

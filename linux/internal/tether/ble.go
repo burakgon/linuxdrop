@@ -15,7 +15,6 @@ const (
 	cmdUUID    = "e3a9f5c2-1d2b-4e3a-9c8d-0a1b2c3d4e5f"
 	statusUUID = "e3a9f5c3-1d2b-4e3a-9c8d-0a1b2c3d4e5f"
 	bluez      = "org.bluez"
-	adapter    = "/org/bluez/hci0"
 )
 
 // BLECentral talks to the phone's tether GATT service over BlueZ D-Bus.
@@ -88,9 +87,40 @@ func (b *BLECentral) commandOnce(conn *dbus.Conn, devPath dbus.ObjectPath, opcod
 	}
 }
 
+// findAdapter returns a BlueZ adapter path, preferring a powered one. Discovered at runtime rather
+// than hardcoding hci0, so LinuxDrop works on any machine regardless of which hciN the controller
+// enumerates as — built-in adapter, USB dongle, built-in disabled in BIOS, etc.
+func findAdapter(conn *dbus.Conn) (dbus.ObjectPath, error) {
+	objs, err := managedObjects(conn)
+	if err != nil {
+		return "", err
+	}
+	var first dbus.ObjectPath
+	for path, ifaces := range objs {
+		a, ok := ifaces["org.bluez.Adapter1"]
+		if !ok {
+			continue
+		}
+		if first == "" {
+			first = path
+		}
+		if powered, _ := a["Powered"].Value().(bool); powered {
+			return path, nil // prefer a powered controller when several are present
+		}
+	}
+	if first == "" {
+		return "", errors.New("tether: no Bluetooth adapter found")
+	}
+	return first, nil
+}
+
 // findDevice scans (filtered to our service UUID) and returns the BlueZ device object path.
 func (b *BLECentral) findDevice(conn *dbus.Conn) (dbus.ObjectPath, error) {
-	ad := conn.Object(bluez, adapter)
+	adapterPath, err := findAdapter(conn)
+	if err != nil {
+		return "", err
+	}
+	ad := conn.Object(bluez, adapterPath)
 	ad.Call("org.bluez.Adapter1.SetDiscoveryFilter", 0, map[string]dbus.Variant{
 		"UUIDs":     dbus.MakeVariant([]string{svcUUID}),
 		"Transport": dbus.MakeVariant("le"),

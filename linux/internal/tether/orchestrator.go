@@ -51,9 +51,12 @@ func (o *Orchestrator) On(ctx context.Context) error {
 	}
 	o.emit(false, "waking phone over BLE…")
 	o.seq++
+	// Synchronous: BLECentral.Command already bounds itself with scan/connect retries. The link on
+	// this hardware can legitimately take ~25s for a fresh connect, so we must NOT cut it off with an
+	// outer timeout — doing so orphans the in-flight attempt and the next press collides with it.
 	res, err := o.ble.Command(OpEnable, o.seq)
 	if err != nil {
-		o.emit(false, "phone unreachable over BLE")
+		o.emit(false, "phone unreachable over BLE — is its Bluetooth on?")
 		return err
 	}
 	if res != 0 {

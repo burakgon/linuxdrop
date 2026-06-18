@@ -25,13 +25,19 @@ class TetherUserService() : ITetherUserService.Stub() {
     @Volatile private var lastKeepAlive = 0L
     @Volatile private var hotspotOn = false
     private val watchdog = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var watchTask: java.util.concurrent.ScheduledFuture<*>? = null
 
     // Shizuku instantiates with a Context; keep it for getSystemService().
     constructor(context: Context) : this() {
         ctx = context
-        // Safety net: if the laptop stops sending keepalives (walked away / BLE lost / app died),
-        // turn the hotspot off ourselves so it can never be stranded on, draining data/battery.
-        watchdog.scheduleWithFixedDelay({
+    }
+
+    // Safety net, armed only WHILE the hotspot is up: if the laptop stops sending keepalives (walked
+    // away / BLE lost / app died), turn the hotspot off ourselves so it can never be stranded on,
+    // draining data/battery. Gated to hotspot-on so there are no idle 30s wakeups when not tethering.
+    private fun startWatchdog() {
+        if (watchTask != null) return
+        watchTask = watchdog.scheduleWithFixedDelay({
             try {
                 if (hotspotOn && System.currentTimeMillis() - lastKeepAlive > SAFETY_WINDOW_MS) {
                     Log.w(TAG, "safety auto-off: no keepalive within ${SAFETY_WINDOW_MS}ms")
@@ -44,6 +50,11 @@ class TetherUserService() : ITetherUserService.Stub() {
         }, WATCH_PERIOD_MS, WATCH_PERIOD_MS, TimeUnit.MILLISECONDS)
     }
 
+    private fun stopWatchdog() {
+        watchTask?.cancel(false)
+        watchTask = null
+    }
+
     override fun enableHotspot(ssid: String, passphrase: String): Int {
         val context = ctx ?: return TetherResult.ERR_NO_CONTEXT
         return try {
@@ -52,6 +63,7 @@ class TetherUserService() : ITetherUserService.Stub() {
             if (r == TetherResult.OK) {
                 lastKeepAlive = System.currentTimeMillis()
                 hotspotOn = true
+                startWatchdog()
             }
             r
         } catch (t: Throwable) {
@@ -69,6 +81,7 @@ class TetherUserService() : ITetherUserService.Stub() {
             val m = connector.javaClass.methods.first { it.name == "stopTethering" }
             m.invoke(connector, *argsByType(m, tetherType = tetheringWifi, listener = listener))
             hotspotOn = false
+            stopWatchdog()
             Log.i(TAG, "stopTethering(WIFI) invoked (connector, pkg=$SHELL_PKG)")
             TetherResult.OK
         } catch (t: Throwable) {

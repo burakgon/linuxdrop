@@ -18,12 +18,17 @@ class ShizukuTether(context: Context) {
 
     @Volatile private var service: ITetherUserService? = null
     @Volatile private var pending: ((ITetherUserService) -> Unit)? = null
+    @Volatile private var onAutoOff: ((Int) -> Unit)? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             val svc = ITetherUserService.Stub.asInterface(binder)
             service = svc
             Log.i(TAG, "tether user service connected")
+            // Register the auto-off callback now that a live service exists. Doing it here (instead of
+            // eagerly when setOnAutoOff is called) is what lets the shell-uid service stay unstarted
+            // until the first real hotspot enable, rather than running 24/7 while merely armed.
+            onAutoOff?.let { cb -> applyCallback(svc, cb) }
             pending?.let { it(svc); pending = null }
         }
 
@@ -49,13 +54,19 @@ class ShizukuTether(context: Context) {
     /** Tell the phone the laptop still wants the hotspot up (resets the safety auto-off timer). */
     fun keepAlive() = runCatching { service?.keepAlive() }
 
-    /** Register a callback fired when the phone auto-disables the hotspot (safety window elapsed). */
-    fun setOnAutoOff(onAutoOff: (Int) -> Unit) = withService { svc ->
-        runCatching {
-            svc.setCallback(object : ITetherCallback.Stub() {
-                override fun onAutoOff(reason: Int) = onAutoOff(reason)
-            })
-        }
+    /** Store the auto-off callback (fired when the phone auto-disables a stranded hotspot). It is
+     *  registered when the service binds — lazily, on the first hotspot enable. Registering it must
+     *  NOT itself bind, or the shell-uid service would run 24/7 unused. Applied immediately if the
+     *  service already happens to be connected. */
+    fun setOnAutoOff(onAutoOff: (Int) -> Unit) {
+        this.onAutoOff = onAutoOff
+        service?.let { applyCallback(it, onAutoOff) }
+    }
+
+    private fun applyCallback(svc: ITetherUserService, cb: (Int) -> Unit) = runCatching {
+        svc.setCallback(object : ITetherCallback.Stub() {
+            override fun onAutoOff(reason: Int) = cb(reason)
+        })
     }
 
     private fun withService(block: (ITetherUserService) -> Unit) {

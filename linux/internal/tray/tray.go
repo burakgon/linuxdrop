@@ -27,7 +27,8 @@ type Tray struct {
 	connected    atomic.Bool
 	paused       atomic.Bool
 	ready        atomic.Bool
-	tetherOn     atomic.Bool
+	tetherOn     atomic.Bool  // currently connected via the phone's hotspot
+	connecting   atomic.Bool  // a connect/disconnect is in flight (item disabled)
 	tetherDetail atomic.Value // string
 }
 
@@ -43,15 +44,10 @@ func (t *Tray) SetConnected(connected bool) {
 	t.refresh()
 }
 
-// SetTetherDetail updates the tether status line (sharing/listening/…) from the orchestrator.
-func (t *Tray) SetTetherDetail(detail string) {
+// SetTether reflects the live connection state (connected + a one-line detail) from the orchestrator.
+func (t *Tray) SetTether(connected bool, detail string) {
+	t.tetherOn.Store(connected)
 	t.tetherDetail.Store(detail)
-	t.refresh()
-}
-
-// SetTetherEnabled reflects the persisted auto-tether master switch in the toggle (init + after a click).
-func (t *Tray) SetTetherEnabled(on bool) {
-	t.tetherOn.Store(on)
 	t.refresh()
 }
 
@@ -76,7 +72,7 @@ func (t *Tray) onReady() {
 	t.statusItem.Disable()
 	systray.AddSeparator()
 	t.pauseItem = systray.AddMenuItem("Pause", "Pause syncing")
-	t.tetherItem = systray.AddMenuItem("Phone internet: off", "Use the phone's hotspot when this box is offline")
+	t.tetherItem = systray.AddMenuItem("Connect to phone internet", "Wake the phone over Bluetooth and use its hotspot")
 	systray.AddSeparator()
 	sendItem := systray.AddMenuItem("Send file…", "Send a file directly to a device")
 	openItem := systray.AddMenuItem("Open received files", "Open the Downloads folder")
@@ -98,12 +94,19 @@ func (t *Tray) onReady() {
 				}
 				t.refresh()
 			case <-t.tetherItem.ClickedCh:
-				on := !t.tetherOn.Load()
-				t.tetherOn.Store(on)
-				if t.cb.OnToggleTether != nil {
-					go t.cb.OnToggleTether(on)
+				if t.connecting.Load() {
+					continue // a connect/disconnect is already in flight
 				}
+				connect := !t.tetherOn.Load()
+				t.connecting.Store(true)
 				t.refresh()
+				go func() {
+					if t.cb.OnToggleTether != nil {
+						t.cb.OnToggleTether(connect)
+					}
+					t.connecting.Store(false)
+					t.refresh()
+				}()
 			case <-sendItem.ClickedCh:
 				if t.cb.OnSendFile != nil {
 					go t.cb.OnSendFile()
@@ -143,14 +146,25 @@ func (t *Tray) refresh() {
 		t.pauseItem.SetTitle("Pause")
 	}
 	if t.tetherItem != nil {
-		label := "Phone internet: off"
-		if t.tetherOn.Load() {
-			label = "Phone internet: Auto"
+		d, _ := t.tetherDetail.Load().(string)
+		switch {
+		case t.connecting.Load():
+			if d == "" {
+				d = "working…"
+			}
+			t.tetherItem.SetTitle("Phone internet: " + d)
+			t.tetherItem.Disable()
+		case t.tetherOn.Load():
+			label := "Disconnect from phone"
+			if d != "" {
+				label += " · " + d
+			}
+			t.tetherItem.SetTitle(label)
+			t.tetherItem.Enable()
+		default:
+			t.tetherItem.SetTitle("Connect to phone internet")
+			t.tetherItem.Enable()
 		}
-		if d, _ := t.tetherDetail.Load().(string); d != "" {
-			label += " — " + d
-		}
-		t.tetherItem.SetTitle(label)
 	}
 	systray.SetIcon(iconPNG(t.connected.Load() && !t.paused.Load()))
 }

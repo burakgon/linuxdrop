@@ -51,12 +51,13 @@ class P2pManager(
         }
     }
     private val http = OkHttpClient()
-    private val factory: PeerConnectionFactory
     private val peers = ConcurrentHashMap<String, Session>()
 
-    init {
+    // Built on the first transfer (in or out), not at sync start — so the WebRTC native worker/
+    // signaling/network threads never spin up for users who only sync the clipboard.
+    private val factory: PeerConnectionFactory by lazy {
         ensureFactoryInit(appContext)
-        factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        PeerConnectionFactory.builder().createPeerConnectionFactory()
     }
 
     /** One peer connection with trickle-ICE candidate queueing. */

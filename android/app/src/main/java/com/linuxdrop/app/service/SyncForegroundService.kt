@@ -39,6 +39,7 @@ class SyncForegroundService : Service() {
     private lateinit var blob: BlobClient
     private var p2p: P2pManager? = null
     private var tetherGatt: TetherGattServer? = null
+    private var started = false // guards onStartCommand re-entry (restartIfRunning) against double-init
     private lateinit var dev: String
     private lateinit var room: String
 
@@ -76,6 +77,14 @@ class SyncForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        // restartIfRunning() does stop()+start(); the new start command can reach THIS same instance
+        // before onDestroy runs, so re-entry must tear the previous session down — otherwise every
+        // restart (toggle tether, change relay, regen key, rename) leaks a duplicate WS connection +
+        // network callback, BLE advertiser + state receiver, WebRTC factory and clipboard binding,
+        // all still live in the background.
+        if (started) teardownSession()
+        started = true
 
         crypto = LinuxDropCrypto.fromSecret(bytes)
         dev = secret.deviceId
@@ -160,11 +169,18 @@ class SyncForegroundService : Service() {
         }
     }
 
+    /** Stop everything created per session in onStartCommand. Safe to call before a re-init
+     *  (restartIfRunning) or from onDestroy; leaves the reusable [io] executor for onDestroy. */
+    private fun teardownSession() {
+        runCatching { if (::ws.isInitialized) ws.stop() }
+        runCatching { if (::shizuku.isInitialized) shizuku.unbind() }
+        runCatching { p2p?.close() }; p2p = null
+        runCatching { tetherGatt?.stop() }; tetherGatt = null
+    }
+
     override fun onDestroy() {
-        runCatching { ws.stop() }
-        runCatching { shizuku.unbind() }
-        runCatching { p2p?.close() }
-        runCatching { tetherGatt?.stop() }
+        teardownSession()
+        started = false
         runCatching { io.shutdownNow() }
         SyncStatus.setRunning(false)
         super.onDestroy()

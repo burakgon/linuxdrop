@@ -218,8 +218,9 @@ private fun TetherCard(ui: UiModel, onToggle: (Boolean) -> Unit) {
                 Switch(checked = ui.tetherEnabled, onCheckedChange = onToggle)
             }
             Text(
-                "When your computer has no internet, it wakes this phone over Bluetooth and turns on the hotspot " +
-                    "to share your mobile data — automatically, no tapping needed.",
+                "Keep this on so the phone can answer. When you press \"Connect to phone internet\" on your " +
+                    "computer, it wakes this phone over Bluetooth and turns on the hotspot to share your mobile " +
+                    "data — nothing to tap here.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

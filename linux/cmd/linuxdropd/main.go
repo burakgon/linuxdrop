@@ -205,6 +205,25 @@ func cmdRun(logger *log.Logger, args []string) {
 	}
 
 	tetherOrch := tether.NewOrchestrator(secret, logger)
+	tetherSSID := crypto.TetherSSID(secret)
+	// One place that drives the phone tether, shared by the tray AND the CLI control socket so they
+	// never disagree — and it fires a desktop notification for every transition (the menu alone gave
+	// no feedback: a press just silently succeeded or reset to "Connect").
+	toggleTether := func(connect bool) error {
+		if connect {
+			notify("LinuxDrop", "Waking your phone over Bluetooth…")
+			if err := tetherOrch.On(ctx); err != nil {
+				logger.Printf("tether connect: %v", err)
+				notify("LinuxDrop", tetherFailMsg(err))
+				return err
+			}
+			notify("LinuxDrop", "Connected — internet via your phone ("+tetherSSID+")")
+			return nil
+		}
+		tetherOrch.Off()
+		notify("LinuxDrop", "Disconnected from phone")
+		return nil
+	}
 	tr = tray.New(tray.Callbacks{
 		OnQuit: func() { stop() },
 		OnTogglePause: func(p bool) {
@@ -215,17 +234,9 @@ func cmdRun(logger *log.Logger, args []string) {
 				logger.Println("resumed")
 			}
 		},
-		OnToggleTether: func(connect bool) {
-			if connect {
-				if err := tetherOrch.On(ctx); err != nil {
-					logger.Printf("tether connect: %v", err)
-				}
-			} else {
-				tetherOrch.Off()
-			}
-		},
-		OnShowQR:     func() { showPairingQR(logger, secret, relay) },
-		OnOpenFolder: func() { _ = exec.Command("xdg-open", downloadsDir()).Start() },
+		OnToggleTether: func(connect bool) { _ = toggleTether(connect) },
+		OnShowQR:       func() { showPairingQR(logger, secret, relay) },
+		OnOpenFolder:   func() { _ = exec.Command("xdg-open", downloadsDir()).Start() },
 		OnSendFile: func() {
 			path, ok := pickFile()
 			if !ok {
@@ -249,6 +260,10 @@ func cmdRun(logger *log.Logger, args []string) {
 			tr.SetTether(connected, detail)
 		}
 	})
+	// Let `linuxdropd tether on|off|status` drive this daemon (tray stays in sync, keepalive holds).
+	go serveControl(ctx, logger, toggleTether, func() string {
+		return fmt.Sprintf("tethered=%v ssid=%s online=%v", tetherOrch.Tethered(), tetherSSID, tether.IsOnline(ctx))
+	})
 	go func() {
 		<-ctx.Done()
 		tr.Quit()
@@ -257,15 +272,27 @@ func cmdRun(logger *log.Logger, args []string) {
 	logger.Println("shutting down")
 }
 
-// cmdTether is the manual CLI: bring the phone hotspot up/down/status (press-to-connect; the tray is
-// the persistent path since it lives in the daemon and holds the keepalive).
+// cmdTether is the manual CLI for the phone tether. It prefers the RUNNING daemon (via the control
+// socket) so the tray updates and the daemon holds the keepalive; only if no daemon is up does it act
+// standalone (a one-shot — the phone's 180s safety-off reclaims it).
 func cmdTether(logger *log.Logger, args []string) {
-	secret := loadSecretOrDie(logger)
-	o := tether.NewOrchestrator(secret, logger)
 	sub := "status"
 	if len(args) > 0 {
 		sub = args[0]
 	}
+	if sub != "on" && sub != "off" && sub != "status" {
+		logger.Fatalf("usage: linuxdropd tether [on|off|status]")
+	}
+	if reply, ok := sendControl(sub); ok {
+		fmt.Print(reply)
+		if strings.HasPrefix(reply, "err:") {
+			os.Exit(1)
+		}
+		return
+	}
+	// No daemon listening — fall back to a standalone one-shot.
+	secret := loadSecretOrDie(logger)
+	o := tether.NewOrchestrator(secret, logger)
 	switch sub {
 	case "on":
 		if err := o.On(context.Background()); err != nil {
@@ -277,8 +304,6 @@ func cmdTether(logger *log.Logger, args []string) {
 		fmt.Println("tether: off")
 	case "status":
 		fmt.Printf("ssid=%s online=%v\n", crypto.TetherSSID(secret), tether.IsOnline(context.Background()))
-	default:
-		logger.Fatalf("usage: linuxdropd tether [on|off|status]")
 	}
 }
 
@@ -560,7 +585,9 @@ func pickDevice(peers []engine.RosterPeer) (string, bool) {
 
 func homeDir() string { h, _ := os.UserHomeDir(); return h }
 
-func notify(title, body string) { _ = exec.Command("notify-send", "-a", "LinuxDrop", title, body).Start() }
+func notify(title, body string) {
+	_ = exec.Command("notify-send", "-a", "LinuxDrop", title, body).Start()
+}
 
 // downloadsDir returns (creating it) the user's Downloads dir (XDG, ~/Downloads fallback).
 func downloadsDir() string {

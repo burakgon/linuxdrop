@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"linuxdrop/linux/internal/crypto"
@@ -19,7 +20,7 @@ type Orchestrator struct {
 
 	mu       sync.Mutex
 	seq      uint32
-	tethered bool
+	tethered atomic.Bool // read lock-free by Tethered()/status so it never blocks behind a connect
 	stopKeep chan struct{}
 	onState  func(tethered bool, detail string)
 }
@@ -46,7 +47,7 @@ func (o *Orchestrator) emit(tethered bool, detail string) {
 func (o *Orchestrator) On(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.tethered {
+	if o.tethered.Load() {
 		return nil
 	}
 	o.emit(false, "waking phone over BLE…")
@@ -73,7 +74,7 @@ func (o *Orchestrator) On(ctx context.Context) error {
 		o.wifi.Leave()
 		return &offlineErr{}
 	}
-	o.tethered = true
+	o.tethered.Store(true)
 	o.stopKeep = make(chan struct{})
 	go o.keepalive(o.stopKeep)
 	o.emit(true, "internet via phone ("+o.wifi.ssid+")")
@@ -93,16 +94,12 @@ func (o *Orchestrator) Off() {
 	o.seq++
 	o.ble.Command(OpDisable, o.seq) // best-effort; idempotent on the phone
 	o.wifi.Leave()
-	o.tethered = false
+	o.tethered.Store(false)
 	o.emit(false, "off")
 	o.log.Printf("tether: down")
 }
 
-func (o *Orchestrator) Tethered() bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.tethered
-}
+func (o *Orchestrator) Tethered() bool { return o.tethered.Load() }
 
 // UsingTether reports whether the active wifi connection is our hotspot profile.
 func (o *Orchestrator) UsingTether() bool { return o.wifi.Active() }

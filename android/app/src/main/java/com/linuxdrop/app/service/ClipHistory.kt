@@ -29,6 +29,7 @@ object ClipHistory {
     )
 
     private const val MAX = 50
+    private const val MAX_TEXT = 16 * 1024 // huge pastes still sync, but stay out of history (no bloat)
     private const val FILE = "linuxdrop_history"
     private const val KEY = "items"
 
@@ -57,7 +58,7 @@ object ClipHistory {
 
     /** Record a synced clip (deduping an immediate repeat of the newest entry). */
     fun add(ctx: Context, text: String, outgoing: Boolean) {
-        if (text.isEmpty()) return
+        if (text.isEmpty() || text.length > MAX_TEXT) return
         val p = prefs(ctx)
         val cur = _items.value
         if (cur.firstOrNull()?.text == text) return

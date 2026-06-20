@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -18,7 +19,10 @@ const (
 )
 
 // BLECentral talks to the phone's tether GATT service over BlueZ D-Bus.
-type BLECentral struct{ key []byte }
+type BLECentral struct {
+	key   []byte
+	bleMu sync.Mutex // serializes Command() so a backgrounded DISABLE can't clash with a re-Connect
+}
 
 func NewBLECentral(kBle []byte) *BLECentral { return &BLECentral{key: kBle} }
 
@@ -26,6 +30,8 @@ func NewBLECentral(kBle []byte) *BLECentral { return &BLECentral{key: kBle} }
 // connect→read→write sequence a few times — the Intel PCIe BLE link drops intermittently, so a
 // single attempt is unreliable even though the protocol is sound.
 func (b *BLECentral) Command(opcode byte, seq uint32) (byte, error) {
+	b.bleMu.Lock()
+	defer b.bleMu.Unlock()
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return 0, err

@@ -86,17 +86,21 @@ func (o *Orchestrator) On(ctx context.Context) error {
 // on a fresh process (CLI `tether off`) where we never started a keepalive.
 func (o *Orchestrator) Off() {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.stopKeep != nil {
 		close(o.stopKeep)
 		o.stopKeep = nil
 	}
 	o.seq++
-	o.ble.Command(OpDisable, o.seq) // best-effort; idempotent on the phone
-	o.wifi.Leave()
+	seq := o.seq
+	o.wifi.Leave() // leave the hotspot immediately — Disconnect must not wait on a BLE round-trip
 	o.tethered.Store(false)
+	o.mu.Unlock()
 	o.emit(false, "off")
 	o.log.Printf("tether: down")
+	// Tell the phone to stop too, but OFF the critical path: if BLE is slow or the phone rotated its
+	// LE address, the phone's 180s safety auto-off reclaims the hotspot anyway. Serialized with other
+	// BLE commands by BLECentral's lock so a quick re-Connect can't clash with this stale DISABLE.
+	go o.ble.Command(OpDisable, seq)
 }
 
 func (o *Orchestrator) Tethered() bool { return o.tethered.Load() }

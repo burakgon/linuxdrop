@@ -1,6 +1,7 @@
 package com.linuxdrop.app.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -75,6 +76,9 @@ fun LinuxDropApp(vm: MainViewModel) {
     }
 
     var screen by remember { mutableStateOf(Screen.HOME) }
+    // System back / swipe on a sub-screen returns to Home instead of closing the app. On Home it's
+    // disabled, so back there exits as usual.
+    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
     when (screen) {
         Screen.SETTINGS -> SettingsScreen(
             ui = ui,

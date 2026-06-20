@@ -51,7 +51,8 @@ The relay that connects your devices is **one you host yourself**.
   clip to re-copy it, or a received file to open it.
 - 📷 **QR pairing & multi-device** — share a network by QR; many devices can join the same one.
 - 🔁 **Resilient** — auto-reconnects on network changes; survives sleep/roaming.
-- 🛡️ **Privacy by default** — clipboard content flagged sensitive (OTP fields, password managers) is skipped.
+- 🛡️ **Yours alone** — everything is E2E-encrypted between your own devices over your own relay (OTPs
+  and passwords included — syncing those is the point); the server can read none of it.
 
 ## 🖼️ Screenshots
 

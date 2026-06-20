@@ -26,9 +26,10 @@ func NewWayland() *Wayland { return &Wayland{mime: "text/plain"} }
 // content, then a NUL terminator frames it — delimiter-safe for arbitrary,
 // multi-line text. The first event reflects the clipboard's current content.
 func (w *Wayland) Watch(ctx context.Context, onChange func(text string)) error {
-	// Per event: skip when wl-paste marks the selection sensitive (password
-	// managers set this); otherwise emit the content + a NUL terminator.
-	const script = `if [ "$CLIPBOARD_STATE" = sensitive ]; then cat >/dev/null; else cat; printf '\0'; fi`
+	// Per event emit the content + a NUL terminator. "Sensitive"-flagged selections
+	// (OTPs, password managers) are forwarded too — syncing those is a primary use case
+	// and the channel is E2E-encrypted between your own devices.
+	const script = `cat; printf '\0'`
 	cmd := exec.CommandContext(ctx, "wl-paste", "--no-newline", "--type", w.mime, "--watch", "sh", "-c", script)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -71,9 +72,9 @@ func (w *Wayland) Paste(ctx context.Context) (string, error) {
 // clipboard until ctx is done. `wl-paste --watch --type image/png` fires only when
 // the selection offers PNG; the child just signals "changed" (a newline), and we
 // pull the bytes out-of-band via a fresh wl-paste — NUL/length framing over the
-// pipe would be fragile for arbitrary binary data. Sensitive selections are skipped.
+// pipe would be fragile for arbitrary binary data.
 func (w *Wayland) WatchImage(ctx context.Context, onImage func(data []byte, mime string)) error {
-	const script = `if [ "$CLIPBOARD_STATE" = sensitive ]; then :; else echo x; fi`
+	const script = `echo x`
 	cmd := exec.CommandContext(ctx, "wl-paste", "--type", imageMime, "--watch", "sh", "-c", script)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

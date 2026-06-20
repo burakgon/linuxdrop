@@ -96,11 +96,8 @@ class ClipboardUserService() : IClipboardUserService.Stub() {
     private fun dispatchChange() {
         val clip = invoke("getPrimaryClip") as? ClipData ?: return
         if (clip.itemCount == 0) return
-        // Skip content apps flagged sensitive (OTP fields, password managers).
-        if (clip.description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true) {
-            Log.i(TAG, "skipping sensitive clipboard")
-            return
-        }
+        // "Sensitive"-flagged clips (OTPs, password managers) are synced too — that's a primary use
+        // case, and the channel is E2E-encrypted between your own devices over your own relay.
         val item = clip.getItemAt(0)
         val text = item.text?.toString()
         if (!text.isNullOrEmpty()) {

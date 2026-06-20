@@ -16,7 +16,8 @@ relay can't read it).
 - **No built-in server:** you point the app at your own relay (Settings → Advanced).
 - **Pairing:** QR (portrait scanner) or a `linuxdrop://pair?...` link (deep link) that carries
   the relay URL, so joining devices don't type anything.
-- **Sensitive content** (OTP/passwords — flagged `IS_SENSITIVE`) is not synced.
+- **Everything syncs, OTPs included** — "sensitive"-flagged clips (OTPs, password managers) are sent
+  too; the channel is E2E-encrypted between your own devices over your own relay.
 
 ## Requirements / build
 - **JDK 17 or 21** (AGP 8.7.3). If your machine has a newer JDK, use the **hermetic Docker build**:

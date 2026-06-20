@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.linuxdrop.app.service.SyncForegroundService
 import com.linuxdrop.app.ui.LinuxDropApp
 import com.linuxdrop.app.ui.MainViewModel
 import com.linuxdrop.app.ui.theme.LinuxDropTheme
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (consumeTextShare(intent)) return // a plain text share: send it and finish, no UI to flash
         Shizuku.addRequestPermissionResultListener(shizukuListener)
         maybeRequestNotifications()
         maybeRequestBtPermissions()
@@ -47,8 +49,21 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (consumeTextShare(intent)) return
         handleDeepLink(intent)
         handleSendIntent(intent)
+    }
+
+    /** A plain text share (no file): broadcast it to the paired devices as a clip, confirm, and finish.
+     *  Returns true if it consumed the intent, so the caller stops (no UI flash). */
+    private fun consumeTextShare(intent: Intent?): Boolean {
+        if (intent?.action != Intent.ACTION_SEND || intent.hasExtra(Intent.EXTRA_STREAM)) return false
+        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        if (text.isNullOrEmpty()) return false
+        SyncForegroundService.shareText(this, text)
+        Toast.makeText(this, "Shared to your devices", Toast.LENGTH_SHORT).show()
+        finish()
+        return true
     }
 
     /** Files shared into the app via the OS Share sheet → await a device choice in the UI. */

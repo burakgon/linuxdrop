@@ -40,6 +40,8 @@ class SyncForegroundService : Service() {
     private var p2p: P2pManager? = null
     private var tetherGatt: TetherGattServer? = null
     private var started = false // guards onStartCommand re-entry (restartIfRunning) against double-init
+    @Volatile private var wsConnected = false
+    @Volatile private var pendingShareText: String? = null // a Share-sheet text waiting for the ws to be up
     private lateinit var dev: String
     private lateinit var room: String
 
@@ -67,6 +69,17 @@ class SyncForegroundService : Service() {
                 io.execute { runCatching { p2p?.sendFile(toDev, uri) } }
             }
             return START_STICKY
+        }
+
+        // Text shared from the OS Share sheet → broadcast it to the paired devices as a clip. If we're
+        // already up, send now (or queue until the ws reconnects); otherwise fall through to init and
+        // the on-connect flush below picks it up.
+        if (intent?.action == ACTION_SHARE_TEXT) {
+            intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotEmpty() }?.let { pendingShareText = it }
+            if (started) {
+                flushPendingShare()
+                return START_STICKY
+            }
         }
 
         val secret = Secret(this)
@@ -109,8 +122,10 @@ class SyncForegroundService : Service() {
             onRoster = { entries -> onRoster(entries) },
             onSignal = { fromDev, iv, ct -> onRemoteSignal(fromDev, iv, ct) },
             onState = { connected ->
+                wsConnected = connected
                 SyncStatus.setConnected(connected)
                 startForegroundNotification(if (connected) "Connected" else "Connecting…")
+                if (connected) flushPendingShare()
             },
         )
         ws.start()
@@ -187,6 +202,15 @@ class SyncForegroundService : Service() {
     }
 
     /** Local clipboard changed (from the Shizuku watcher) → encrypt + send. */
+    /** Send a queued Share-sheet text as a clip, once the ws is connected. */
+    private fun flushPendingShare() {
+        val text = pendingShareText ?: return
+        if (!::ws.isInitialized || !wsConnected) return
+        pendingShareText = null
+        synchronized(lock) { lastHash = null } // force-send even if it equals the last clip
+        onLocalClip(text)
+    }
+
     private fun onLocalClip(text: String) {
         if (text.isEmpty()) return
         val h = sha256Hex(text)
@@ -348,7 +372,9 @@ class SyncForegroundService : Service() {
         private const val CHANNEL_ID = "linuxdrop.sync"
         private const val NOTIF_ID = 1
         private const val ACTION_SEND_FILE = "com.linuxdrop.app.SEND_FILE"
+        private const val ACTION_SHARE_TEXT = "com.linuxdrop.app.SHARE_TEXT"
         private const val EXTRA_TO_DEV = "toDev"
+        private const val EXTRA_TEXT = "text"
 
         fun start(context: Context) {
             val i = Intent(context, SyncForegroundService::class.java)
@@ -357,6 +383,14 @@ class SyncForegroundService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, SyncForegroundService::class.java))
+        }
+
+        /** Broadcast a Share-sheet text to the paired devices as a clip (starts the service if needed). */
+        fun shareText(context: Context, text: String) {
+            val i = Intent(context, SyncForegroundService::class.java)
+                .setAction(ACTION_SHARE_TEXT)
+                .putExtra(EXTRA_TEXT, text)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }
 
         /** Ask the running service to send a file directly (P2P) to a peer device. */

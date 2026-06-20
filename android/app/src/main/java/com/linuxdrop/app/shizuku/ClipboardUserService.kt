@@ -112,8 +112,12 @@ class ClipboardUserService() : IClipboardUserService.Stub() {
         val resolver = ctx?.contentResolver ?: return
         val mime = resolver.getType(uri) ?: return
         if (!mime.startsWith("image/")) return
+        // The relay caps blobs at 25 MiB (backend MAX_BLOB_BYTES) — skip oversized images up front so
+        // we never read a huge file into RAM only to have the upload rejected.
+        val declared = runCatching { resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1L
+        if (declared > MAX_IMAGE_BYTES) { Log.w(TAG, "skipping oversized image ($declared B)"); return }
         val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-        if (bytes == null || bytes.isEmpty()) return
+        if (bytes == null || bytes.isEmpty() || bytes.size > MAX_IMAGE_BYTES) return
 
         val pipe = ParcelFileDescriptor.createPipe()
         val read = pipe[0]
@@ -161,5 +165,6 @@ class ClipboardUserService() : IClipboardUserService.Stub() {
 
     companion object {
         private const val TAG = "linuxDropClipSvc"
+        private const val MAX_IMAGE_BYTES = 25 * 1024 * 1024 // mirror backend MAX_BLOB_BYTES
     }
 }

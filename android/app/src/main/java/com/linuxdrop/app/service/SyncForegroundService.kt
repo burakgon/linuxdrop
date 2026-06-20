@@ -231,6 +231,10 @@ class SyncForegroundService : Service() {
     /** Local image copied → encrypt, upload as a blob, broadcast a clip referencing it. §6 */
     private fun onLocalImage(bytes: ByteArray, mime: String) {
         if (bytes.isEmpty()) return
+        if (bytes.size > MAX_BLOB_BYTES) { // relay rejects > 25 MiB; don't waste the encrypt + upload
+            Log.w(TAG, "skipping oversized image (${bytes.size} B)")
+            return
+        }
         val h = sha256Hex(bytes)
         synchronized(lock) {
             if (h == lastHash) return
@@ -369,6 +373,7 @@ class SyncForegroundService : Service() {
 
     companion object {
         private const val TAG = "linuxDropSvc"
+        private const val MAX_BLOB_BYTES = 25 * 1024 * 1024 // mirror backend MAX_BLOB_BYTES / Linux maxBytes
         private const val CHANNEL_ID = "linuxdrop.sync"
         private const val NOTIF_ID = 1
         private const val ACTION_SEND_FILE = "com.linuxdrop.app.SEND_FILE"

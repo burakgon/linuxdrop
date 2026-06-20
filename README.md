@@ -10,7 +10,7 @@
 
 </div>
 
-LinuxDrop does two things between your phone and computer — in real time, end-to-end encrypted, with
+LinuxDrop does three things between your phone and computer — in real time, end-to-end encrypted, with
 **no cloud account and no vendor in the middle**:
 
 - 🔄 **Clipboard sync** — copy a link, an OTP, a paragraph, or an image on one device and it's instantly
@@ -19,6 +19,9 @@ LinuxDrop does two things between your phone and computer — in real time, end-
   whether the two are on the same Wi-Fi *or on completely different networks* (phone on mobile data,
   laptop across town). The bytes go peer-to-peer — full speed on a LAN, hole-punched directly over the
   internet otherwise — and never pass through a server.
+- 📶 **Phone internet, one press.** Laptop has no Wi-Fi? Tap **Connect** in the Linux tray and it wakes
+  your paired phone over **Bluetooth**, turns on its hotspot, and joins it — you're back online through
+  the phone's mobile data without ever touching the phone.
 
 The relay that connects your devices is **one you host yourself**.
 
@@ -34,6 +37,11 @@ The relay that connects your devices is **one you host yourself**.
   no port-forwarding), and at full speed when they share a LAN. The bytes **never touch the relay**.
   Send from the Android **Share sheet** (or a device's send button), or **right-click → "Send with
   LinuxDrop"** on Linux.
+- 📶 **Phone internet sharing — press-to-connect.** When the computer is offline, one press in the Linux
+  tray **wakes your phone over Bluetooth**, turns on its Wi-Fi hotspot, and joins it — online through the
+  phone's mobile data, hands-off. The phone arms it with a single toggle (**Shizuku**-driven, no root);
+  connect/disconnect stay manual, and the phone safety-offs the hotspot if the laptop walks away. The
+  wake command is itself AES-sealed, so only your paired computer can ring the doorbell.
 - 🔒 **End-to-end encrypted** — AES-256-GCM with a key derived from a secret only your devices know.
 - 🕵️ **Zero-knowledge relay** — the server only sees an opaque room id; it can't read your clipboard,
   filenames, or device names, and file bytes never reach it.
@@ -138,6 +146,14 @@ systemctl --user enable --now linuxdrop        # start syncing (system tray)
 - **Linux:** right-click a file in Dolphin → **"Send with LinuxDrop"**, or the tray's **"Send file…"**
   (`linuxdropd send [--to <device>] <file>…` from the terminal). Received files land in `~/Downloads`
   and the folder opens automatically.
+
+**Phone internet (tether)**
+- On Android, turn **"Phone internet sharing"** on once — it arms the phone to answer over Bluetooth
+  (keep the app allowed to run in the background).
+- On Linux, when the computer has no Wi-Fi, open the tray → **"Connect to phone internet"**: it wakes
+  the phone over Bluetooth, turns on its hotspot, and joins it. **"Disconnect from phone"** tears it
+  down. (`linuxdropd tether on|off|status` does the same from the terminal.) Needs a working Bluetooth
+  adapter on the computer and **Shizuku** on the phone.
 
 ## 🔐 Security model
 

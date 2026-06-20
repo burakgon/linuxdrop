@@ -16,7 +16,7 @@ import (
 	"linuxdrop/linux/internal/wire"
 )
 
-const pingInterval = 180 * time.Second // well under the backend's 240s idle timeout
+const pingInterval = 45 * time.Second // short enough to survive NAT/router idle drops; << backend's 240s idle
 
 type Client struct {
 	url      string

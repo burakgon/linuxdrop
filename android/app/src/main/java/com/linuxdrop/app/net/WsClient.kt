@@ -52,7 +52,10 @@ class WsClient(
     }
 
     private val client = OkHttpClient.Builder()
-        .pingInterval(180, TimeUnit.SECONDS) // keepalive under the relay's 240s idle timeout
+        // Keepalive every 45s: short enough to survive NAT/router idle drops and screen-off Wi-Fi
+        // power-save (connections were dropping ~every 2 min on a 180s ping → reconnect storms, which
+        // cost far more battery than the tiny ping). Still well under the relay's 240s idle timeout.
+        .pingInterval(45, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 

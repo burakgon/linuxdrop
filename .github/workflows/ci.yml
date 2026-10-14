@@ -49,9 +49,15 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: linux/go.mod
-          cache-dependency-path: linux/go.sum
+          cache-dependency-path: |
+            linux/go.sum
+            shared/go.sum
 
-      - name: Run tests
+      - name: Run shared package tests
+        working-directory: shared
+        run: go test ./...
+
+      - name: Run Linux tests
         run: go test ./...
 
   macos-client:
@@ -59,7 +65,7 @@ jobs:
     runs-on: macos-latest
     defaults:
       run:
-        working-directory: linux
+        working-directory: macos
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -67,11 +73,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version-file: linux/go.mod
-          cache-dependency-path: linux/go.sum
+          go-version-file: macos/go.mod
+          cache-dependency-path: |
+            macos/go.sum
+            shared/go.sum
 
       - name: Build menu bar client
-        run: go build -o /tmp/linuxdrop-mac ./cmd/linuxdrop-mac
+        run: go build -o /tmp/linuxdrop-mac ./cmd
 
   android:
     name: Android unit tests

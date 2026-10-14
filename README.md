@@ -136,11 +136,11 @@ systemctl --user enable --now linuxdrop        # start syncing (system tray)
 ```
 
 **macOS (text clipboard sync):**
-Build on a Mac with Go 1.26.3 or later. To pair Android to a network created on the Mac, print a QR
-code in the terminal; to join a network created on another device, pass its pairing URI:
+Build on a Mac with Go 1.26.3 or later (see [`macos/README.md`](macos/README.md)). To pair Android to a
+network created on the Mac, print a QR code in the terminal; to join a network created on another device, pass its pairing URI:
 ```bash
-cd linux
-go build -o "$HOME/.local/bin/linuxdrop-mac" ./cmd/linuxdrop-mac
+cd macos
+go build -o "$HOME/.local/bin/linuxdrop-mac" ./cmd
 linuxdrop-mac qr wss://relay.example.com
 # Or: linuxdrop-mac pair 'linuxdrop://pair?s=...&relay=wss%3A%2F%2Frelay.example.com'
 linuxdrop-mac run
@@ -188,7 +188,8 @@ remains available on Linux.
 |-----------|-------|-------|
 | `backend/` | Bun + Hono + SQLite | `bun install && bun test` · `docker compose up -d --build` |
 | `linux/`   | Go (+ `wl-clipboard`, pion/webrtc) | `go build ./... && go test ./...` |
-| `linux/cmd/linuxdrop-mac` | Go + macOS `pbpaste` / `pbcopy` | Build on macOS to produce the menu bar app |
+| `macos/`  | Go menu bar client (`pbpaste` / `pbcopy`) | Build on macOS; shares protocol and sync engine from `shared/` |
+| `shared/` | Go protocol, encryption, and sync engine | Used by the Linux daemon and macOS client |
 | `android/` | Kotlin + Compose + Shizuku + WebRTC | `bash scripts/build-apk.sh` (hermetic Docker build) |
 
 ## 📄 License

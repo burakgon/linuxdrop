@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"linuxdrop/linux/internal/crypto"
+	"linuxdrop/shared/crypto"
 )
 
 func TestFrameRoundTripAndReplay(t *testing.T) {

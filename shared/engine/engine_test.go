@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"linuxdrop/linux/internal/crypto"
-	"linuxdrop/linux/internal/wire"
+	"linuxdrop/shared/crypto"
+	"linuxdrop/shared/wire"
 )
 
 // fakeClip mimics the OS clipboard, including the crucial hazard: a Copy()

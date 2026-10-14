@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"linuxdrop/linux/internal/crypto"
+	"linuxdrop/shared/crypto"
 )
 
 const (

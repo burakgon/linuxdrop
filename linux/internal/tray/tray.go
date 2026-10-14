@@ -72,11 +72,23 @@ func (t *Tray) onReady() {
 	t.statusItem.Disable()
 	systray.AddSeparator()
 	t.pauseItem = systray.AddMenuItem("Pause", "Pause syncing")
-	t.tetherItem = systray.AddMenuItem("Connect to phone internet", "Wake the phone over Bluetooth and use its hotspot")
-	systray.AddSeparator()
-	sendItem := systray.AddMenuItem("Send file…", "Send a file directly to a device")
-	openItem := systray.AddMenuItem("Open received files", "Open the Downloads folder")
-	qrItem := systray.AddMenuItem("Show pairing QR", "Pairing QR")
+	var tetherCh, sendCh, openCh, qrCh <-chan struct{}
+	if t.cb.OnToggleTether != nil {
+		t.tetherItem = systray.AddMenuItem("Connect to phone internet", "Wake the phone over Bluetooth and use its hotspot")
+		tetherCh = t.tetherItem.ClickedCh
+	}
+	if t.cb.OnSendFile != nil || t.cb.OnOpenFolder != nil || t.cb.OnShowQR != nil {
+		systray.AddSeparator()
+	}
+	if t.cb.OnSendFile != nil {
+		sendCh = systray.AddMenuItem("Send file…", "Send a file directly to a device").ClickedCh
+	}
+	if t.cb.OnOpenFolder != nil {
+		openCh = systray.AddMenuItem("Open received files", "Open the Downloads folder").ClickedCh
+	}
+	if t.cb.OnShowQR != nil {
+		qrCh = systray.AddMenuItem("Show pairing QR", "Pairing QR").ClickedCh
+	}
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("Quit", "Stop the daemon")
 
@@ -93,7 +105,7 @@ func (t *Tray) onReady() {
 					t.cb.OnTogglePause(p)
 				}
 				t.refresh()
-			case <-t.tetherItem.ClickedCh:
+			case <-tetherCh:
 				if t.connecting.Load() {
 					continue // a connect/disconnect is already in flight
 				}
@@ -107,15 +119,15 @@ func (t *Tray) onReady() {
 					t.connecting.Store(false)
 					t.refresh()
 				}()
-			case <-sendItem.ClickedCh:
+			case <-sendCh:
 				if t.cb.OnSendFile != nil {
 					go t.cb.OnSendFile()
 				}
-			case <-openItem.ClickedCh:
+			case <-openCh:
 				if t.cb.OnOpenFolder != nil {
 					go t.cb.OnOpenFolder()
 				}
-			case <-qrItem.ClickedCh:
+			case <-qrCh:
 				if t.cb.OnShowQR != nil {
 					t.cb.OnShowQR()
 				}

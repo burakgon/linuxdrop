@@ -2,10 +2,10 @@
 
 # 📋 LinuxDrop
 
-### Self-hosted, end-to-end encrypted **clipboard sync + direct file transfer** between Android and Linux.
+### Self-hosted, end-to-end encrypted **clipboard sync + direct file transfer** between Android, Linux, and macOS.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Android%2010%2B%20%C2%B7%20Linux%20(Wayland)-success)
+![Platforms](https://img.shields.io/badge/platforms-Android%2010%2B%20%C2%B7%20Linux%20(Wayland)%20%C2%B7%20macOS-success)
 ![Self-hosted](https://img.shields.io/badge/server-self--hosted-orange)
 
 </div>
@@ -135,6 +135,20 @@ linuxdropd qr                                  # show a QR for your phone to sca
 systemctl --user enable --now linuxdrop        # start syncing (system tray)
 ```
 
+**macOS (text clipboard sync):**
+Build on a Mac with Go 1.26.3 or later. To pair Android to a network created on the Mac, print a QR
+code in the terminal; to join a network created on another device, pass its pairing URI:
+```bash
+cd linux
+go build -o "$HOME/.local/bin/linuxdrop-mac" ./cmd/linuxdrop-mac
+linuxdrop-mac qr wss://relay.example.com
+# Or: linuxdrop-mac pair 'linuxdrop://pair?s=...&relay=wss%3A%2F%2Frelay.example.com'
+linuxdrop-mac run
+```
+The shared secret is stored in macOS Keychain when available. The menu bar item offers connection
+status, pause/resume, and quit. macOS currently syncs text; Linux's image clipboard integration
+remains available on Linux.
+
 **Android:**
 1. Install the APK (grab it from [Releases](https://github.com/burakgon/linuxdrop/releases) or build
    it — see [`android/README.md`](android/README.md)) and install **Shizuku**.
@@ -174,6 +188,7 @@ systemctl --user enable --now linuxdrop        # start syncing (system tray)
 |-----------|-------|-------|
 | `backend/` | Bun + Hono + SQLite | `bun install && bun test` · `docker compose up -d --build` |
 | `linux/`   | Go (+ `wl-clipboard`, pion/webrtc) | `go build ./... && go test ./...` |
+| `linux/cmd/linuxdrop-mac` | Go + macOS `pbpaste` / `pbcopy` | Build on macOS to produce the menu bar app |
 | `android/` | Kotlin + Compose + Shizuku + WebRTC | `bash scripts/build-apk.sh` (hermetic Docker build) |
 
 ## 📄 License

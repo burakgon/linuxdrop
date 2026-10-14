@@ -54,6 +54,25 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+  macos-client:
+    name: macOS client build
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: linux/go.mod
+          cache-dependency-path: linux/go.sum
+
+      - name: Build menu bar client
+        run: go build -o /tmp/linuxdrop-mac ./cmd/linuxdrop-mac
+
   android:
     name: Android unit tests
     runs-on: ubuntu-latest

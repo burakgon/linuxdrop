@@ -1,18 +1,21 @@
 module linuxdrop/linux
 
+require linuxdrop/shared v0.0.0
+
+replace linuxdrop/shared => ../shared
+
 go 1.26.3
 
 require (
-	fyne.io/systray v1.12.1
-	github.com/coder/websocket v1.8.14
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/pion/webrtc/v4 v4.2.13
-	github.com/zalando/go-keyring v0.2.8
 	rsc.io/qr v0.2.0
 )
 
 require (
+	fyne.io/systray v1.12.2 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
@@ -31,6 +34,7 @@ require (
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v5 v5.0.4 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/zalando/go-keyring v0.2.8 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect

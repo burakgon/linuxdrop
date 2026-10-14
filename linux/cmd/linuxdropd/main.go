@@ -26,16 +26,16 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"rsc.io/qr"
 
-	"linuxdrop/linux/internal/blob"
-	"linuxdrop/linux/internal/clipboard"
-	"linuxdrop/linux/internal/config"
-	"linuxdrop/linux/internal/crypto"
-	"linuxdrop/linux/internal/engine"
 	"linuxdrop/linux/internal/p2p"
 	"linuxdrop/linux/internal/tether"
-	"linuxdrop/linux/internal/tray"
-	"linuxdrop/linux/internal/wire"
-	"linuxdrop/linux/internal/ws"
+	"linuxdrop/shared/blob"
+	"linuxdrop/linux/internal/clipboard"
+	"linuxdrop/shared/config"
+	"linuxdrop/shared/crypto"
+	"linuxdrop/shared/engine"
+	"linuxdrop/shared/tray"
+	"linuxdrop/shared/wire"
+	"linuxdrop/shared/ws"
 )
 
 func main() {

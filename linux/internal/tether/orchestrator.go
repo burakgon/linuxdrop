@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"linuxdrop/linux/internal/crypto"
+	"linuxdrop/shared/crypto"
 )
 
 // Orchestrator brings the box online via the phone's hotspot and tears it down. It owns the BLE

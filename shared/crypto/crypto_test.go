@@ -26,7 +26,7 @@ type vectors struct {
 
 func loadVectors(t *testing.T) vectors {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "proto", "crypto-test-vectors.json")
+	path := filepath.Join("..", "..", "proto", "crypto-test-vectors.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read vectors: %v", err)

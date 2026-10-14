@@ -1,6 +1,8 @@
 // Package clipboard reads and writes the system clipboard. The Wayland backend
 // uses wl-clipboard (wl-paste/wl-copy) over the wlroots/ext data-control
 // protocol, which is event-driven — no polling. See proto/PROTOCOL.md §5.
+//go:build linux
+
 package clipboard
 
 import (

@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"linuxdrop/linux/internal/wire"
+	"linuxdrop/shared/wire"
 )
 
 const pingInterval = 45 * time.Second // short enough to survive NAT/router idle drops; << backend's 240s idle

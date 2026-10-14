@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type Config struct {
@@ -26,7 +27,11 @@ func Dir() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		base = filepath.Join(home, ".config")
+		if runtime.GOOS == "darwin" {
+			base = filepath.Join(home, "Library", "Application Support")
+		} else {
+			base = filepath.Join(home, ".config")
+		}
 	}
 	d := filepath.Join(base, "linuxdrop")
 	return d, os.MkdirAll(d, 0o700)
@@ -47,7 +52,11 @@ func Load() (*Config, error) {
 	// No built-in relay: RelayURL stays empty until the user pairs / sets one.
 	changed := false
 	if c.DeviceID == "" {
-		c.DeviceID = "linux-" + randHex(3)
+		prefix := "linux-"
+		if runtime.GOOS == "darwin" {
+			prefix = "mac-"
+		}
+		c.DeviceID = prefix + randHex(3)
 		changed = true
 	}
 	if c.DeviceName == "" {
